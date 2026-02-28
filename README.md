@@ -14,9 +14,14 @@ Multi-tool MCP server + REST API for AI agents. Screenshot, WHOIS, DNS, and mult
 - `GET /api/screenshot?url=<url>&format=png|jpeg&width=1280&height=800&fullPage=true|false`
 - `GET /api/pdf?url=<url>`
 
+### Content Extraction
+- `GET /api/html2md?url=<url>` — Fetch URL and convert to clean Markdown
+- `GET /api/ocr?url=<image_url>` — Extract text from image via OCR (Tesseract.js)
+
 ### Domain Intelligence
 - `GET /api/whois?domain=<domain>`
 - `GET /api/dns?domain=<domain>&type=A|AAAA|MX|NS|TXT|CNAME|SOA|ALL`
+- `GET /api/ssl?domain=<domain>` — SSL certificate details + expiry check
 
 ### Blockchain (6 chains: Ethereum, Base, Arbitrum, Optimism, Polygon, Celo)
 - `GET /api/chain/balance?address=<addr>&chain=ethereum`
@@ -36,8 +41,11 @@ Multi-tool MCP server + REST API for AI agents. Screenshot, WHOIS, DNS, and mult
 |------|-------------|
 | `screenshot` | Take PNG/JPEG screenshot of any URL |
 | `pdf` | Generate PDF of any URL |
+| `html2md` | Fetch URL and extract content as Markdown |
+| `ocr` | Extract text from image via OCR |
 | `whois` | WHOIS lookup for any domain |
 | `dns` | DNS record lookup (A, MX, NS, TXT, etc.) |
+| `ssl` | SSL certificate details + expiry check |
 | `balance` | Native token balance on 6 chains |
 | `erc20_balance` | ERC20 token balance |
 | `transaction` | Transaction details by hash |
