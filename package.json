@@ -1,0 +1,16 @@
+{
+  "name": "mcp-services",
+  "version": "1.0.0",
+  "description": "MCP + x402 services: Screenshot, WHOIS/DNS, Blockchain data",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^4.21.0",
+    "puppeteer-core": "^24.0.0",
+    "whois-json": "^2.0.4",
+    "viem": "^2.21.0"
+  }
+}
