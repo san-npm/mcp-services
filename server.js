@@ -231,6 +231,150 @@ app.get('/api/chain/erc20', async (req, res) => {
   }
 });
 
+// HTML to Markdown
+app.get('/api/html2md', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
+  
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium-browser',
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    });
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    
+    // Extract readable content and convert to markdown-like text
+    const content = await page.evaluate(() => {
+      // Remove scripts, styles, nav, footer, ads
+      const remove = document.querySelectorAll('script, style, nav, footer, aside, [role="banner"], [role="navigation"], .ad, .ads, .sidebar');
+      remove.forEach(el => el.remove());
+      
+      const article = document.querySelector('article, main, [role="main"]') || document.body;
+      
+      function nodeToMd(node, depth = 0) {
+        if (node.nodeType === 3) return node.textContent;
+        if (node.nodeType !== 1) return '';
+        
+        const tag = node.tagName.toLowerCase();
+        const children = Array.from(node.childNodes).map(c => nodeToMd(c, depth)).join('');
+        
+        switch (tag) {
+          case 'h1': return `\n# ${children.trim()}\n`;
+          case 'h2': return `\n## ${children.trim()}\n`;
+          case 'h3': return `\n### ${children.trim()}\n`;
+          case 'h4': return `\n#### ${children.trim()}\n`;
+          case 'p': return `\n${children.trim()}\n`;
+          case 'br': return '\n';
+          case 'strong': case 'b': return `**${children.trim()}**`;
+          case 'em': case 'i': return `*${children.trim()}*`;
+          case 'a': return `[${children.trim()}](${node.href || ''})`;
+          case 'code': return `\`${children.trim()}\``;
+          case 'pre': return `\n\`\`\`\n${children.trim()}\n\`\`\`\n`;
+          case 'li': return `- ${children.trim()}\n`;
+          case 'ul': case 'ol': return `\n${children}`;
+          case 'blockquote': return `\n> ${children.trim()}\n`;
+          case 'img': return `![${node.alt || ''}](${node.src || ''})`;
+          case 'table': return `\n${children}\n`;
+          case 'tr': return children + '\n';
+          case 'th': case 'td': return `| ${children.trim()} `;
+          default: return children;
+        }
+      }
+      
+      return nodeToMd(article).replace(/\n{3,}/g, '\n\n').trim();
+    });
+    
+    const title = await page.title();
+    res.json({ url, title, markdown: content, length: content.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (browser) await browser.close();
+  }
+});
+
+// OCR — extract text from image URL
+app.get('/api/ocr', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
+  
+  let browser;
+  try {
+    // Download image and use Tesseract via Chromium's canvas
+    browser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium-browser',
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    });
+    const page = await browser.newPage();
+    
+    // Load Tesseract.js via CDN and process the image
+    await page.setContent(`
+      <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+      <img id="img" crossorigin="anonymous" />
+    `);
+    
+    const text = await page.evaluate(async (imageUrl) => {
+      const { createWorker } = window.Tesseract;
+      const worker = await createWorker('eng');
+      const { data: { text } } = await worker.recognize(imageUrl);
+      await worker.terminate();
+      return text;
+    }, url);
+    
+    res.json({ url, text: text.trim(), length: text.trim().length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (browser) await browser.close();
+  }
+});
+
+// SSL Certificate checker
+app.get('/api/ssl', async (req, res) => {
+  const { domain } = req.query;
+  if (!domain) return res.status(400).json({ error: 'domain parameter required' });
+  
+  try {
+    const { execSync } = await import('child_process');
+    const raw = execSync(
+      `echo | openssl s_client -servername ${domain} -connect ${domain}:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -serial -fingerprint 2>/dev/null`,
+      { timeout: 10000, encoding: 'utf-8' }
+    );
+    
+    const lines = raw.split('\n').filter(Boolean);
+    const cert = {};
+    for (const line of lines) {
+      const [key, ...val] = line.split('=');
+      const k = key.trim().toLowerCase();
+      if (k === 'subject') cert.subject = val.join('=').trim();
+      else if (k === 'issuer') cert.issuer = val.join('=').trim();
+      else if (k.includes('notbefore')) cert.validFrom = val.join('=').trim();
+      else if (k.includes('notafter')) cert.validUntil = val.join('=').trim();
+      else if (k === 'serial') cert.serial = val.join('=').trim();
+      else if (k.includes('fingerprint')) cert.fingerprint = val.join('=').trim();
+    }
+    
+    // Check expiry
+    if (cert.validUntil) {
+      const expiry = new Date(cert.validUntil);
+      const daysLeft = Math.floor((expiry - new Date()) / 86400000);
+      cert.daysUntilExpiry = daysLeft;
+      cert.expired = daysLeft < 0;
+      cert.expiringSoon = daysLeft >= 0 && daysLeft < 30;
+    }
+    
+    res.json({ domain, certificate: cert });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── MCP Server ───
 const mcpServer = new McpServer({
   name: 'mcp-services',
@@ -348,6 +492,77 @@ mcpServer.tool('transaction', 'Get transaction details by hash.', {
     hash, chain, from: tx.from, to: tx.to, value: formatEther(tx.value),
     gasUsed: receipt.gasUsed.toString(), status: receipt.status, blockNumber: Number(tx.blockNumber)
   }, null, 2) }] };
+});
+
+mcpServer.tool('html2md', 'Fetch a URL and convert the page content to clean Markdown. Removes nav, ads, scripts.', {
+  url: { type: 'string', description: 'URL to fetch and convert' },
+}, async ({ url }) => {
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium-browser', headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    });
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    const content = await page.evaluate(() => {
+      document.querySelectorAll('script, style, nav, footer, aside, .ad, .ads, .sidebar').forEach(el => el.remove());
+      const article = document.querySelector('article, main, [role="main"]') || document.body;
+      return article.innerText;
+    });
+    const title = await page.title();
+    return { content: [{ type: 'text', text: `# ${title}\n\n${content.replace(/\n{3,}/g, '\n\n').trim()}` }] };
+  } finally { if (browser) await browser.close(); }
+});
+
+mcpServer.tool('ocr', 'Extract text from an image URL using OCR.', {
+  url: { type: 'string', description: 'Image URL to extract text from' },
+}, async ({ url }) => {
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium-browser', headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    });
+    const page = await browser.newPage();
+    await page.setContent(`<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>`);
+    const text = await page.evaluate(async (imageUrl) => {
+      const { createWorker } = window.Tesseract;
+      const worker = await createWorker('eng');
+      const { data: { text } } = await worker.recognize(imageUrl);
+      await worker.terminate();
+      return text;
+    }, url);
+    return { content: [{ type: 'text', text: text.trim() }] };
+  } finally { if (browser) await browser.close(); }
+});
+
+mcpServer.tool('ssl', 'Check SSL certificate details for a domain. Returns issuer, validity dates, expiry status.', {
+  domain: { type: 'string', description: 'Domain to check SSL certificate for' },
+}, async ({ domain }) => {
+  const { execSync } = await import('child_process');
+  const raw = execSync(
+    `echo | openssl s_client -servername ${domain} -connect ${domain}:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -serial 2>/dev/null`,
+    { timeout: 10000, encoding: 'utf-8' }
+  );
+  const lines = raw.split('\n').filter(Boolean);
+  const cert = {};
+  for (const line of lines) {
+    const [key, ...val] = line.split('=');
+    const k = key.trim().toLowerCase();
+    if (k === 'subject') cert.subject = val.join('=').trim();
+    else if (k === 'issuer') cert.issuer = val.join('=').trim();
+    else if (k.includes('notbefore')) cert.validFrom = val.join('=').trim();
+    else if (k.includes('notafter')) cert.validUntil = val.join('=').trim();
+  }
+  if (cert.validUntil) {
+    const daysLeft = Math.floor((new Date(cert.validUntil) - new Date()) / 86400000);
+    cert.daysUntilExpiry = daysLeft;
+    cert.expired = daysLeft < 0;
+  }
+  return { content: [{ type: 'text', text: JSON.stringify({ domain, certificate: cert }, null, 2) }] };
 });
 
 // ─── SSE Transport for MCP ───
