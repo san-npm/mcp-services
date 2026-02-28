@@ -25,6 +25,20 @@ const CHAINS = {
 const app = express();
 app.use(express.json());
 
+// URL validation — block SSRF
+function validateUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    if (!['http:', 'https:'].includes(u.protocol)) return false;
+    const host = u.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
+    if (host.startsWith('10.') || host.startsWith('172.16.') || host.startsWith('192.168.')) return false;
+    if (host === '169.254.169.254') return false;
+    if (host.endsWith('.internal') || host.endsWith('.local')) return false;
+    return true;
+  } catch { return false; }
+}
+
 // Health
 app.get('/health', (_, res) => res.json({ status: 'ok', services: ['screenshot', 'whois', 'blockchain'] }));
 
@@ -32,6 +46,7 @@ app.get('/health', (_, res) => res.json({ status: 'ok', services: ['screenshot',
 app.get('/api/screenshot', async (req, res) => {
   const { url, format = 'png', width = 1280, height = 800, fullPage = false } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
   
   let browser;
   try {
@@ -70,6 +85,7 @@ app.get('/api/screenshot', async (req, res) => {
 app.get('/api/pdf', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
   
   let browser;
   try {
