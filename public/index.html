@@ -48,10 +48,10 @@
       },
       {
         "@type": "Offer",
-        "name": "API Key",
+        "name": "Pro",
         "price": "9",
         "priceCurrency": "USD",
-        "description": "Unlimited API calls with X-Api-Key header"
+        "description": "Unlimited API calls with dedicated API key"
       },
       {
         "@type": "Offer",
@@ -80,58 +80,222 @@
 
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#e5e5e5;min-height:100vh;display:flex;align-items:center;justify-content:center;line-height:1.6}
-    .c{max-width:680px;padding:2rem}
-    h1{font-size:1.6rem;margin-bottom:.25rem;color:#fff;letter-spacing:-.02em}
-    .tagline{color:#888;margin-bottom:1.5rem;font-size:.95rem}
-    h2{font-size:1rem;color:#fff;margin:1.5rem 0 .5rem;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
-    .tools{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:.3rem .5rem}
-    .tools li{padding:.35rem 0;font-size:.85rem}
-    .tools .name{color:#60a5fa;font-family:monospace}
-    .tools .desc{color:#666;font-size:.8rem}
-    .endpoints{list-style:none}
-    .endpoints li{padding:.3rem 0;font-family:monospace;font-size:.85rem}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#e5e5e5;min-height:100vh;line-height:1.6}
+    ::selection{background:rgba(0,255,136,.2);color:#00ff88}
+
+    .wrap{max-width:780px;margin:0 auto;padding:2rem 1.5rem}
+
+    /* Hero */
+    .hero{text-align:center;padding:3rem 0 2rem}
+    .hero h1{font-size:2rem;font-weight:700;color:#fff;letter-spacing:-.03em;margin-bottom:.5rem}
+    .hero .sub{color:#888;font-size:1rem;max-width:520px;margin:0 auto .75rem;line-height:1.6}
+    .hero .sub strong{color:#e5e5e5}
+
+    /* Install box */
+    .install{display:inline-flex;align-items:center;gap:.75rem;background:#111;border:1px solid #222;border-radius:8px;padding:.6rem 1.2rem;font-family:'SF Mono','Fira Code',monospace;font-size:.85rem;cursor:pointer;transition:border-color .2s}
+    .install:hover{border-color:#00ff88}
+    .install .prompt{color:#00ff88;user-select:none}
+    .install .cmd{color:#e5e5e5}
+    .install .copy{color:#444;font-size:.75rem;user-select:none}
+
+    /* Stats */
+    .stats{display:flex;justify-content:center;gap:2.5rem;padding:1.5rem 0;margin:1.5rem 0;border-top:1px solid #1a1a1a;border-bottom:1px solid #1a1a1a}
+    .stats .stat{text-align:center}
+    .stats .num{font-size:1.5rem;font-weight:700;color:#00ff88}
+    .stats .label{font-size:.75rem;color:#444;margin-top:.15rem}
+
+    /* Section headers */
+    h2{font-size:1.15rem;color:#fff;margin:2.5rem 0 .75rem;text-align:center;font-weight:600}
+    h2 + .section-sub{text-align:center;color:#666;font-size:.85rem;margin-bottom:1.25rem}
+
+    /* How it works */
+    .steps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;margin-bottom:2rem}
+    .step{background:#111;border:1px solid #222;border-radius:10px;padding:1.25rem;text-align:center}
+    .step .num{width:28px;height:28px;border-radius:50%;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:#00ff88;font-size:.8rem;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-bottom:.5rem}
+    .step .title{font-size:.85rem;font-weight:600;color:#e5e5e5;margin-bottom:.25rem}
+    .step .desc{font-size:.75rem;color:#666}
+
+    /* Tools grid */
+    .tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:2rem}
+    .tool-card{background:#111;border:1px solid #222;border-radius:10px;padding:1rem 1.25rem;transition:border-color .2s}
+    .tool-card:hover{border-color:#333}
+    .tool-card .tool-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem}
+    .tool-card .icon{font-size:1rem}
+    .tool-card .name{font-size:.85rem;font-weight:600;color:#e5e5e5}
+    .tool-card .desc{font-size:.75rem;color:#666;line-height:1.5}
+
+    /* Connect snippet */
+    .connect{background:#111;border:1px solid #222;padding:1rem 1.25rem;font-family:'SF Mono','Fira Code',monospace;font-size:.8rem;overflow-x:auto;border-radius:8px;color:#a5d6ff;max-width:420px;margin:0 auto}
+    .connect-label{font-size:.7rem;color:#444;margin-bottom:.35rem;font-family:'SF Mono','Fira Code',monospace}
+
+    /* REST API */
+    .endpoints{list-style:none;background:#111;border:1px solid #222;border-radius:10px;padding:1rem 1.25rem}
+    .endpoints li{padding:.3rem 0;font-family:'SF Mono','Fira Code',monospace;font-size:.8rem;color:#888}
     .endpoints a{color:#60a5fa;text-decoration:none}
     .endpoints a:hover{text-decoration:underline}
-    .connect{background:#111;border:1px solid #222;padding:1rem;font-family:monospace;font-size:.8rem;overflow-x:auto;margin:.5rem 0;border-radius:4px;color:#a5d6ff}
-    .tiers{list-style:none}
-    .tiers li{padding:.25rem 0;font-size:.85rem}
-    .tiers .tier{color:#60a5fa;font-weight:600;display:inline-block;min-width:80px}
-    footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #1a1a1a;color:#555;font-size:.8rem}
-    footer a{color:#555;text-decoration:none}
+
+    /* Pricing cards */
+    .pricing{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;margin-bottom:2rem}
+    .tier{background:#111;border:1px solid #222;border-radius:12px;padding:1.5rem;display:flex;flex-direction:column;position:relative}
+    .tier.highlight{border:2px solid #00ff88}
+    .tier .badge{position:absolute;top:-.65rem;left:50%;transform:translateX(-50%);background:#00ff88;color:#0a0a0a;font-size:.65rem;font-weight:700;padding:.2rem .75rem;border-radius:20px;white-space:nowrap}
+    .tier .tier-name{font-size:1rem;font-weight:600;color:#fff;margin-bottom:.15rem}
+    .tier .tier-desc{font-size:.75rem;color:#666;margin-bottom:.75rem}
+    .tier .price{font-size:1.75rem;font-weight:700;color:#fff;margin-bottom:.15rem}
+    .tier .price .period{font-size:.8rem;font-weight:400;color:#666}
+    .tier .features{list-style:none;flex:1;margin:.75rem 0}
+    .tier .features li{font-size:.75rem;padding:.25rem 0;display:flex;align-items:center;gap:.5rem}
+    .tier .features .check{color:#00ff88;font-size:.8rem}
+    .tier .features .dash{color:#333;font-size:.8rem}
+    .tier .features .included{color:#888}
+    .tier .features .excluded{color:#333}
+    .tier .cta{display:block;text-align:center;font-size:.8rem;font-weight:600;padding:.6rem;border-radius:8px;text-decoration:none;transition:all .2s}
+    .tier .cta-primary{background:#00ff88;color:#0a0a0a}
+    .tier .cta-primary:hover{background:#00cc6a}
+    .tier .cta-secondary{background:#0a0a0a;border:1px solid #222;color:#e5e5e5}
+    .tier .cta-secondary:hover{border-color:#00ff88;color:#00ff88}
+
+    /* Chains */
+    .chains{display:flex;justify-content:center;gap:1rem;flex-wrap:wrap;margin-bottom:2rem}
+    .chain-tag{font-size:.75rem;color:#666;background:#111;border:1px solid #1a1a1a;padding:.3rem .75rem;border-radius:6px}
+
+    /* FAQ */
+    .faq{max-width:600px;margin:0 auto 2rem}
+    .faq-item{background:#111;border:1px solid #222;border-radius:10px;overflow:hidden;margin-bottom:.4rem}
+    .faq-btn{width:100%;text-align:left;background:none;border:none;color:#e5e5e5;font-family:inherit;font-size:.85rem;font-weight:500;padding:.85rem 1.25rem;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:background .2s}
+    .faq-btn:hover{background:#1a1a1a}
+    .faq-btn .toggle{color:#444;font-size:1rem;transition:transform .2s}
+    .faq-panel{max-height:0;overflow:hidden;transition:max-height .25s ease}
+    .faq-panel.open{max-height:300px}
+    .faq-panel p{padding:0 1.25rem 1rem;font-size:.8rem;color:#888;line-height:1.7}
+
+    /* Footer */
+    footer{text-align:center;padding:2rem 0;border-top:1px solid #1a1a1a;margin-top:1rem;color:#444;font-size:.8rem}
+    footer a{color:#555;text-decoration:none;transition:color .2s}
     footer a:hover{color:#888}
-    @media(max-width:500px){.tools{grid-template-columns:1fr}}
+    footer .links{margin-top:.5rem}
+    footer .links a{margin:0 .5rem}
+
+    /* Responsive */
+    @media(max-width:640px){
+      .hero h1{font-size:1.5rem}
+      .steps{grid-template-columns:1fr}
+      .tools-grid{grid-template-columns:1fr}
+      .pricing{grid-template-columns:1fr}
+      .stats{gap:1.5rem}
+      .stats .num{font-size:1.25rem}
+      .chains{gap:.5rem}
+    }
   </style>
 </head>
 <body>
-  <main class="c">
-    <h1>MCP Services</h1>
-    <p class="tagline">Multi-tool MCP server for AI agents. 10 tools across screenshots, domain intelligence, content extraction, and multi-chain blockchain data.</p>
+  <div class="wrap">
 
+    <!-- Hero -->
+    <header class="hero">
+      <h1>MCP Tools for AI Agents</h1>
+      <p class="sub">
+        10 hosted tools your AI agent can call via <strong>MCP</strong> or <strong>REST API</strong>.
+        Screenshot, DNS, WHOIS, SSL, OCR, blockchain lookups, and more — ready to connect.
+      </p>
+      <div class="install" onclick="navigator.clipboard.writeText('https://mcp.skills.ws/mcp/sse').then(()=>{this.querySelector('.copy').textContent='copied!'})">
+        <span class="prompt">MCP</span>
+        <span class="cmd">mcp.skills.ws/mcp/sse</span>
+        <span class="copy">copy</span>
+      </div>
+    </header>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat"><div class="num">10</div><div class="label">tools</div></div>
+      <div class="stat"><div class="num">6</div><div class="label">chains</div></div>
+      <div class="stat"><div class="num">3</div><div class="label">plans</div></div>
+      <div class="stat"><div class="num">0</div><div class="label">config needed</div></div>
+    </div>
+
+    <!-- How It Works -->
+    <h2>How It Works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <div class="title">Connect</div>
+        <div class="desc">Add the MCP endpoint to your agent config</div>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <div class="title">Call</div>
+        <div class="desc">Your agent calls tools like screenshot, DNS, WHOIS</div>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <div class="title">Get Results</div>
+        <div class="desc">Structured data returned instantly to your agent</div>
+      </div>
+    </div>
+
+    <!-- MCP Tools -->
     <h2>MCP Tools</h2>
-    <ul class="tools">
-      <li><span class="name">screenshot</span> <span class="desc">PNG/JPEG of any URL</span></li>
-      <li><span class="name">pdf</span> <span class="desc">Generate PDF of any URL</span></li>
-      <li><span class="name">html2md</span> <span class="desc">URL to clean Markdown</span></li>
-      <li><span class="name">ocr</span> <span class="desc">Image text extraction</span></li>
-      <li><span class="name">whois</span> <span class="desc">Domain WHOIS lookup</span></li>
-      <li><span class="name">dns</span> <span class="desc">DNS records (A, MX, etc.)</span></li>
-      <li><span class="name">ssl</span> <span class="desc">SSL cert + expiry check</span></li>
-      <li><span class="name">balance</span> <span class="desc">Native token (6 chains)</span></li>
-      <li><span class="name">erc20_balance</span> <span class="desc">ERC20 token balance</span></li>
-      <li><span class="name">transaction</span> <span class="desc">TX details by hash</span></li>
-    </ul>
+    <p class="section-sub">All tools available in every plan.</p>
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">📸</span><span class="name">screenshot</span></div>
+        <div class="desc">Full-page PNG/JPEG capture of any URL</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">📑</span><span class="name">pdf</span></div>
+        <div class="desc">Generate PDF documents from any URL</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">📝</span><span class="name">html2md</span></div>
+        <div class="desc">Convert any URL to clean Markdown</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">📄</span><span class="name">ocr</span></div>
+        <div class="desc">Extract text from images via OCR</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">🔍</span><span class="name">whois</span></div>
+        <div class="desc">Domain registration &amp; ownership lookup</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">🌐</span><span class="name">dns</span></div>
+        <div class="desc">DNS records — A, AAAA, MX, TXT, NS, CNAME, SOA</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">🔒</span><span class="name">ssl</span></div>
+        <div class="desc">SSL/TLS certificate inspection &amp; expiry check</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">💰</span><span class="name">balance</span></div>
+        <div class="desc">Native token balance across 6 chains</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">🪙</span><span class="name">erc20_balance</span></div>
+        <div class="desc">ERC20 token balance lookup</div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-head"><span class="icon">🔗</span><span class="name">transaction</span></div>
+        <div class="desc">Transaction details by hash</div>
+      </div>
+    </div>
 
+    <!-- Connect via MCP -->
     <h2>Connect via MCP</h2>
-    <pre class="connect">{
+    <p class="section-sub">Add this to your agent's MCP config.</p>
+    <div class="connect">
+      <div class="connect-label">mcp config:</div>
+      <pre>{
   "mcpServers": {
     "mcp-services": {
       "url": "https://mcp.skills.ws/mcp/sse"
     }
   }
 }</pre>
+    </div>
 
+    <!-- REST API -->
     <h2>REST API</h2>
+    <p class="section-sub">Or call tools directly over HTTP.</p>
     <ul class="endpoints">
       <li><a href="/health">/health</a></li>
       <li>/api/screenshot?url=&lt;url&gt;&amp;format=png|jpeg</li>
@@ -146,23 +310,153 @@
       <li>/api/chain/tx?hash=&amp;chain=ethereum</li>
     </ul>
 
+    <!-- Pricing -->
     <h2>Pricing</h2>
-    <ul class="tiers">
-      <li><span class="tier">Free</span> 10 calls/day per IP, no auth</li>
-      <li><span class="tier">API Key</span> Unlimited, $9/mo</li>
-      <li><span class="tier">x402</span> $0.005/call, pay with stablecoins on Celo</li>
-    </ul>
+    <p class="section-sub">Every plan includes all 10 tools.</p>
+    <div class="pricing">
+      <div class="tier">
+        <div class="tier-name">Free</div>
+        <div class="tier-desc">Get started instantly</div>
+        <div class="price">$0 <span class="period">forever</span></div>
+        <ul class="features">
+          <li><span class="check">&#10003;</span><span class="included">10 calls per day</span></li>
+          <li><span class="check">&#10003;</span><span class="included">All 10 MCP tools</span></li>
+          <li><span class="check">&#10003;</span><span class="included">IP-based rate limiting</span></li>
+          <li><span class="check">&#10003;</span><span class="included">Community support</span></li>
+          <li><span class="dash">&mdash;</span><span class="excluded">API key</span></li>
+          <li><span class="dash">&mdash;</span><span class="excluded">Unlimited calls</span></li>
+        </ul>
+        <a href="https://mcp.skills.ws/mcp/sse" class="cta cta-secondary">Start Free</a>
+      </div>
+      <div class="tier highlight">
+        <span class="badge">RECOMMENDED</span>
+        <div class="tier-name">Pro</div>
+        <div class="tier-desc">For teams &amp; power users</div>
+        <div class="price">$9 <span class="period">/month</span></div>
+        <ul class="features">
+          <li><span class="check">&#10003;</span><span class="included">Unlimited calls</span></li>
+          <li><span class="check">&#10003;</span><span class="included">All 10 MCP tools</span></li>
+          <li><span class="check">&#10003;</span><span class="included">Dedicated API key</span></li>
+          <li><span class="check">&#10003;</span><span class="included">Email support</span></li>
+          <li><span class="check">&#10003;</span><span class="included">Priority rate limits</span></li>
+          <li><span class="check">&#10003;</span><span class="included">Usage dashboard</span></li>
+        </ul>
+        <a href="https://mcp.skills.ws/pro" class="cta cta-primary">Get Pro</a>
+      </div>
+      <div class="tier">
+        <div class="tier-name">Pay-Per-Call</div>
+        <div class="tier-desc">Crypto micropayments via x402</div>
+        <div class="price">$0.005 <span class="period">/call</span></div>
+        <ul class="features">
+          <li><span class="check">&#10003;</span><span class="included">No subscription</span></li>
+          <li><span class="check">&#10003;</span><span class="included">All 10 MCP tools</span></li>
+          <li><span class="check">&#10003;</span><span class="included">USDC / USDT</span></li>
+          <li><span class="check">&#10003;</span><span class="included">Base &amp; Celo chains</span></li>
+          <li><span class="check">&#10003;</span><span class="included">x402 protocol</span></li>
+          <li><span class="check">&#10003;</span><span class="included">Pay only what you use</span></li>
+        </ul>
+        <a href="https://mcp.skills.ws/x402" class="cta cta-secondary">Learn More</a>
+      </div>
+    </div>
 
-    <h2>Chains</h2>
-    <p style="font-size:.85rem;color:#888">Ethereum, Base, Arbitrum, Optimism, Polygon, Celo</p>
+    <!-- Chains -->
+    <h2>Supported Chains</h2>
+    <div class="chains">
+      <span class="chain-tag">Ethereum</span>
+      <span class="chain-tag">Base</span>
+      <span class="chain-tag">Arbitrum</span>
+      <span class="chain-tag">Optimism</span>
+      <span class="chain-tag">Polygon</span>
+      <span class="chain-tag">Celo</span>
+    </div>
 
+    <!-- FAQ -->
+    <h2>FAQ</h2>
+    <div class="faq">
+      <div class="faq-item">
+        <button class="faq-btn" onclick="toggleFaq(this)">
+          <span>When should I use Free vs Pro vs Pay-Per-Call?</span>
+          <span class="toggle">+</span>
+        </button>
+        <div class="faq-panel">
+          <p>Free is great for trying tools or light use (up to 10 calls/day). Pro is best for teams or workflows that need unlimited access with a predictable monthly cost. Pay-Per-Call is ideal for unpredictable usage — you only pay for what you use via crypto micropayments.</p>
+        </div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-btn" onclick="toggleFaq(this)">
+          <span>Which chains are supported for Pay-Per-Call?</span>
+          <span class="toggle">+</span>
+        </button>
+        <div class="faq-panel">
+          <p>Pay-Per-Call uses the x402 protocol and supports USDC and USDT stablecoins on Base and Celo. Both are low-cost chains with fast finality, so transaction fees are minimal.</p>
+        </div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-btn" onclick="toggleFaq(this)">
+          <span>What is x402?</span>
+          <span class="toggle">+</span>
+        </button>
+        <div class="faq-panel">
+          <p>x402 is an open protocol for HTTP-native micropayments. When you make an API call, the server responds with a 402 Payment Required status. Your client automatically sends a small crypto payment and retries. No accounts, no API keys — just pay and use.</p>
+        </div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-btn" onclick="toggleFaq(this)">
+          <span>Can I switch between plans?</span>
+          <span class="toggle">+</span>
+        </button>
+        <div class="faq-panel">
+          <p>Yes. Upgrade from Free to Pro anytime. Switch from Pro to Pay-Per-Call by cancelling your subscription and using x402 payments. No lock-in.</p>
+        </div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-btn" onclick="toggleFaq(this)">
+          <span>Is there a refund policy?</span>
+          <span class="toggle">+</span>
+        </button>
+        <div class="faq-panel">
+          <p>Pro subscriptions can be cancelled anytime — you keep access until the billing period ends. Pay-Per-Call transactions are final (on-chain micropayments), but at $0.005/call the risk is minimal.</p>
+        </div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-btn" onclick="toggleFaq(this)">
+          <span>What's the difference between MCP tools and agent skills?</span>
+          <span class="toggle">+</span>
+        </button>
+        <div class="faq-panel">
+          <p>Agent skills (installed via npx skills-ws) are free SKILL.md files that teach your AI agent new capabilities. MCP tools (this site) are hosted API services your agent can call as MCP tool servers. Skills are free forever. MCP tools have the pricing tiers above.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
     <footer>
-      <a href="https://github.com/san-npm/mcp-services">GitHub</a> &middot;
-      <a href="https://skills.ws">SKILLS.ws</a> &middot;
-      <a href="/sitemap.xml">Sitemap</a> &middot;
-      <a href="/llms.txt">llms.txt</a> &middot;
-      MIT &copy; <a href="https://openletz.com">Commit Media SARL</a>
+      <div>Built by <a href="https://openletz.com">Commit Media SARL</a></div>
+      <div class="links">
+        <a href="https://github.com/san-npm/mcp-services">GitHub</a>
+        <a href="https://skills.ws">SKILLS.ws</a>
+        <a href="/sitemap.xml">Sitemap</a>
+        <a href="/llms.txt">llms.txt</a>
+      </div>
+      <div style="margin-top:.5rem">MIT &copy; <a href="https://openletz.com">Commit Media SARL</a></div>
     </footer>
-  </main>
+
+  </div>
+
+  <script>
+    function toggleFaq(btn) {
+      const panel = btn.nextElementSibling;
+      const toggle = btn.querySelector('.toggle');
+      const isOpen = panel.classList.contains('open');
+      // Close all
+      document.querySelectorAll('.faq-panel').forEach(p => p.classList.remove('open'));
+      document.querySelectorAll('.faq-btn .toggle').forEach(t => { t.style.transform = 'rotate(0deg)'; });
+      // Open clicked if it was closed
+      if (!isOpen) {
+        panel.classList.add('open');
+        toggle.style.transform = 'rotate(45deg)';
+      }
+    }
+  </script>
 </body>
 </html>
