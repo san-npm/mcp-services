@@ -1,11 +1,37 @@
 # MCP Services
 
-Multi-tool MCP server + REST API for AI agents. Screenshot, WHOIS, DNS, and multi-chain blockchain data.
+Multi-tool MCP server + REST API for AI agents. Screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.
 
 ## Live Endpoint
 
 `https://mcp.skills.ws`
 
+## Authentication
+
+Three tiers — use whichever fits:
+
+| Tier | Auth | Limit | Cost |
+|------|------|-------|------|
+| **Free** | None | 10 calls/day per IP | $0 |
+| **API Key** | `X-Api-Key` header | Unlimited | $9/mo |
+| **x402** | `X-Payment` header | Pay per call | $0.005/call |
+
+### API Key
+
+```bash
+curl -H "X-Api-Key: mcp_your_key" https://mcp.skills.ws/api/whois?domain=example.com
+```
+
+### x402 (Pay-per-call with stablecoins)
+
+No account needed. Pay with USDC, USDT, or cUSD on Celo. Send payment proof in the `X-Payment` header.
+
+```bash
+# x402-compatible agents handle this automatically
+curl -H "X-Payment: <base64-payment-proof>" https://mcp.skills.ws/api/screenshot?url=https://example.com
+```
+
+When rate-limited or missing payment, the API returns HTTP 402/429 with pricing info.
 
 ## Services
 
@@ -65,8 +91,8 @@ Multi-tool MCP server + REST API for AI agents. Screenshot, WHOIS, DNS, and mult
 
 ```bash
 npm install
-node server.js
-# Runs on port 3100
+cp .env.example .env  # edit with your settings
+node server.js        # runs on port 3100
 ```
 
 Requires Chromium for screenshot/PDF.
@@ -78,4 +104,9 @@ Requires Chromium for screenshot/PDF.
 - viem for blockchain queries
 - whois-json for WHOIS
 - MCP SDK (SSE transport)
+- x402 payment protocol (Celo stablecoins)
 - Hosted on Aleph Cloud (decentralized compute)
+
+## License
+
+MIT — [Commit Media SARL](https://openletz.com)
