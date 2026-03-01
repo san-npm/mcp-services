@@ -10,6 +10,7 @@ import { resolve, resolve4 } from 'dns/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { authMiddleware, adminRoutes } from './auth.js';
+import { stripeRoutes } from './stripe.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -203,6 +204,9 @@ function parseCertOutput(raw) {
 // ─── Express API ───
 const app = express();
 app.use(express.json());
+
+// Stripe billing routes (before auth middleware — checkout/webhook need to be public)
+stripeRoutes(app);
 
 // Auth & billing middleware
 app.use(authMiddleware);
