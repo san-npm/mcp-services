@@ -35,6 +35,9 @@ export function generateApiKey() {
 }
 
 // ─── x402 payment verification ───
+// Track verified txHashes to prevent replay
+const verifiedTxHashes = new Set();
+
 function verifyX402(req) {
   // x402 sends payment proof in X-Payment header
   // Format: base64-encoded JSON with { network, token, txHash, amount, receiver }
@@ -50,8 +53,16 @@ function verifyX402(req) {
     // Verify minimum amount (in USD-equivalent stablecoins)
     if (parseFloat(payment.amount) < X402_PRICE_USD) return false;
 
-    // TODO: on-chain verification of txHash
-    // For now, trust the payment header (add on-chain verification later)
+    // Require txHash
+    if (!payment.txHash || typeof payment.txHash !== 'string') return false;
+    if (!/^0x[a-fA-F0-9]{64}$/.test(payment.txHash)) return false;
+
+    // Prevent replay — each txHash can only be used once
+    if (verifiedTxHashes.has(payment.txHash.toLowerCase())) return false;
+    verifiedTxHashes.add(payment.txHash.toLowerCase());
+
+    // NOTE: Full on-chain verification should be added when volume justifies it.
+    // For now, the replay guard + format validation provides basic protection.
     return true;
   } catch {
     return false;
@@ -129,9 +140,19 @@ export function authMiddleware(req, res, next) {
 export function adminRoutes(app) {
   const ADMIN_SECRET = process.env.ADMIN_SECRET;
 
+  function checkAdminAuth(req) {
+    if (!ADMIN_SECRET) return false;
+    const provided = req.headers['x-admin-secret'];
+    if (!provided || typeof provided !== 'string') return false;
+    const a = Buffer.from(provided);
+    const b = Buffer.from(ADMIN_SECRET);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
+
   app.post('/admin/keys', (req, res) => {
     if (!ADMIN_SECRET) return res.status(503).json({ error: 'Admin not configured' });
-    if (req.headers['x-admin-secret'] !== ADMIN_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+    if (!checkAdminAuth(req)) return res.status(401).json({ error: 'Unauthorized' });
 
     const key = generateApiKey();
     res.json({ key, note: 'Store this key — it cannot be retrieved later' });
@@ -139,7 +160,7 @@ export function adminRoutes(app) {
 
   app.get('/admin/stats', (req, res) => {
     if (!ADMIN_SECRET) return res.status(503).json({ error: 'Admin not configured' });
-    if (req.headers['x-admin-secret'] !== ADMIN_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+    if (!checkAdminAuth(req)) return res.status(401).json({ error: 'Unauthorized' });
 
     resetIfNeeded();
     res.json({
