@@ -130,7 +130,6 @@ export function stripeRoutes(app) {
         mode: 'subscription',
         payment_method_types: ['card'],
         line_items: [{ price: pid, quantity: 1 }],
-        customer_creation: 'always',
         billing_address_collection: 'auto',
         success_url: `${DOMAIN}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${DOMAIN}/billing/cancel`,
