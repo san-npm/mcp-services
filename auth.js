@@ -6,7 +6,7 @@ import crypto from 'crypto';
 // ─── Config ───
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
 const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005; // $0.005 per call
-const X402_RECEIVER = process.env.X402_RECEIVER || '0x3df410Ed65037EB664b3250AB568B012AB5B88Bf';
+const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
 const API_KEYS_CSV = process.env.API_KEYS || ''; // comma-separated valid keys
 
 // ─── In-memory stores (reset daily) ───
@@ -91,7 +91,7 @@ export function authMiddleware(req, res, next) {
         currency: 'USD',
         receiver: X402_RECEIVER,
         networks: ['base', 'celo', 'arbitrum', 'polygon'],
-        accepts: ['USDC', 'USDT', 'cUSD'],
+        accepts: ['USDC', 'USDT'],
         description: 'Pay per API call with stablecoins'
       }
     });
@@ -124,7 +124,7 @@ export function authMiddleware(req, res, next) {
           currency: 'USD',
           receiver: X402_RECEIVER,
           networks: ['base', 'celo', 'arbitrum', 'polygon'],
-          accepts: ['USDC', 'USDT', 'cUSD']
+          accepts: ['USDC', 'USDT']
         }
       }
     });
