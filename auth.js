@@ -203,7 +203,7 @@ export function authMiddleware(req, res, next) {
 
   // 3. Free tier — IP rate limit
   resetIfNeeded();
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+  const ip = req.ip; // trust proxy is configured in server.js
   const count = (ipCounts.get(ip) || 0) + 1;
   ipCounts.set(ip, count);
 
