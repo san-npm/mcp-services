@@ -4,9 +4,8 @@ Multi-tool MCP server + REST API for AI agents. Screenshot, WHOIS, DNS, and mult
 
 ## Live Endpoint
 
-`https://forest-remedy-module-sells.trycloudflare.com`
+`https://mcp.skills.ws`
 
-> Note: Cloudflare tunnel URL changes on restart. Check this README for the latest.
 
 ## Services
 
@@ -56,7 +55,7 @@ Multi-tool MCP server + REST API for AI agents. Screenshot, WHOIS, DNS, and mult
 {
   "mcpServers": {
     "mcp-services": {
-      "url": "https://forest-remedy-module-sells.trycloudflare.com/mcp/sse"
+      "url": "https://mcp.skills.ws/mcp/sse"
     }
   }
 }
