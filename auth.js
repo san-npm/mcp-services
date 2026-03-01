@@ -2,7 +2,8 @@
 // Three tiers: free (IP rate limit) | API key (unlimited) | x402 (pay-per-call)
 
 import crypto from 'crypto';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
+import { dirname } from 'path';
 
 // ─── Config ───
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
@@ -25,11 +26,14 @@ function loadKeys() {
 
 function saveKeys() {
   try {
-    const dir = KEYS_FILE.substring(0, KEYS_FILE.lastIndexOf('/'));
-    if (dir && !existsSync(dir)) {
-      import('fs').then(fs => fs.mkdirSync(dir, { recursive: true }));
+    const dir = dirname(KEYS_FILE);
+    if (dir && dir !== '.' && !existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(KEYS_FILE, JSON.stringify(keyStore, null, 2));
+    // Atomic write: write to temp file then rename
+    const tmp = KEYS_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify(keyStore, null, 2));
+    renameSync(tmp, KEYS_FILE);
   } catch (e) {
     console.error('[auth] Failed to save keys:', e.message);
   }
@@ -47,13 +51,13 @@ for (const k of envKeys) {
 }
 
 export function addApiKey(key, meta = {}) {
-  keyStore[key] = { 
+  keyStore[key] = {
     customerId: meta.customerId || null,
     subscriptionId: meta.subscriptionId || null,
     email: meta.email || 'unknown',
     createdAt: new Date().toISOString(),
-    active: true,
-    ...meta
+    ...meta,
+    active: true, // always force active — never allow override from meta
   };
   saveKeys();
 }
@@ -160,8 +164,8 @@ export function authMiddleware(req, res, next) {
   if (req.path.startsWith('/mcp/')) return next();
   // Skip billing routes (handled separately)
   if (req.path.startsWith('/billing/')) return next();
-  // Skip static files
-  if (req.path.startsWith('/public/') || req.path === '/robots.txt' || req.path === '/sitemap.xml' || req.path === '/llms.txt' || req.path === '/llms-full.txt') return next();
+  // Skip static files (served from public/ at root by express.static)
+  if (req.path === '/' || req.path === '/robots.txt' || req.path === '/sitemap.xml' || req.path === '/llms.txt' || req.path === '/llms-full.txt' || req.path === '/index.html') return next();
 
   // 1. Check x402 payment
   if (req.headers['x-payment']) {

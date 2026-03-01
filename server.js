@@ -204,6 +204,7 @@ function parseCertOutput(raw) {
 
 // ─── Express API ───
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy — required for accurate req.ip behind reverse proxy
 
 // Stripe billing routes FIRST (webhook needs raw body before express.json parses it)
 stripeRoutes(app);
