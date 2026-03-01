@@ -1,0 +1,207 @@
+# MCP Services — Complete Documentation
+
+> Multi-tool MCP server + REST API for AI agents by SKILLS.ws
+
+Website: https://mcp.skills.ws
+GitHub: https://github.com/san-npm/mcp-services
+License: MIT | Author: Commit Media SARL
+
+---
+
+## What is MCP Services?
+
+MCP Services is a Model Context Protocol (MCP) server that exposes 10 tools to AI agents via Server-Sent Events (SSE) transport. It also provides the same tools as a standard REST API. The server handles screenshots, PDF generation, domain intelligence (WHOIS, DNS, SSL), content extraction (HTML-to-Markdown, OCR), and multi-chain EVM blockchain queries.
+
+## MCP Connection
+
+To connect from Claude Desktop, Cursor, or any MCP-compatible client:
+
+```json
+{
+  "mcpServers": {
+    "mcp-services": {
+      "url": "https://mcp.skills.ws/mcp/sse"
+    }
+  }
+}
+```
+
+SSE endpoint: `GET https://mcp.skills.ws/mcp/sse`
+Message endpoint: `POST https://mcp.skills.ws/mcp/messages?sessionId=<id>`
+
+---
+
+## Tool Reference
+
+### 1. screenshot
+Take a screenshot of any URL. Returns base64 PNG/JPEG image.
+
+Parameters:
+- `url` (string, required) — URL to screenshot
+- `format` (string, default: "png") — "png" or "jpeg"
+- `width` (number, default: 1280) — Viewport width (100–3840)
+- `height` (number, default: 800) — Viewport height (100–2160)
+- `fullPage` (boolean, default: false) — Capture full scrollable page
+
+REST: `GET /api/screenshot?url=https://example.com&format=png&width=1280&height=800&fullPage=false`
+
+### 2. pdf
+Generate a PDF of any URL. Returns PDF binary (REST) or base64 data URI (MCP).
+
+Parameters:
+- `url` (string, required) — URL to convert to PDF
+
+REST: `GET /api/pdf?url=https://example.com`
+
+### 3. html2md
+Fetch a URL and convert the page content to clean Markdown. Removes navigation, ads, and scripts. Extracts the main article content.
+
+Parameters:
+- `url` (string, required) — URL to fetch and convert
+
+REST: `GET /api/html2md?url=https://example.com`
+
+### 4. ocr
+Extract text from an image URL using OCR (Tesseract.js). Supports common image formats.
+
+Parameters:
+- `url` (string, required) — Image URL to extract text from
+
+REST: `GET /api/ocr?url=https://example.com/image.png`
+
+### 5. whois
+Look up WHOIS information for a domain. Returns registrar, creation date, expiry, name servers, and more.
+
+Parameters:
+- `domain` (string, required) — Domain name to look up
+
+REST: `GET /api/whois?domain=example.com`
+
+### 6. dns
+Look up DNS records for a domain. Supports individual record types or ALL.
+
+Parameters:
+- `domain` (string, required) — Domain name
+- `type` (string, default: "ALL") — Record type: A, AAAA, MX, NS, TXT, CNAME, SOA, or ALL
+
+REST: `GET /api/dns?domain=example.com&type=ALL`
+
+### 7. ssl
+Check SSL certificate details for a domain. Returns issuer, validity dates, expiry countdown, and fingerprint.
+
+Parameters:
+- `domain` (string, required) — Domain to check SSL certificate for
+
+REST: `GET /api/ssl?domain=example.com`
+
+### 8. balance
+Get native token balance for an address on any of 6 supported EVM chains.
+
+Parameters:
+- `address` (string, required) — Wallet address (0x...)
+- `chain` (string, default: "ethereum") — Chain: ethereum, base, arbitrum, optimism, polygon, celo
+
+REST: `GET /api/chain/balance?address=0x...&chain=ethereum`
+
+### 9. erc20_balance
+Get ERC20 token balance for an address. Returns balance, symbol, and decimals.
+
+Parameters:
+- `address` (string, required) — Wallet address
+- `token` (string, required) — Token contract address
+- `chain` (string, default: "ethereum") — Chain name
+
+REST: `GET /api/chain/erc20?address=0x...&token=0x...&chain=ethereum`
+
+### 10. transaction
+Get transaction details by hash. Returns from, to, value, gas used, status, and block number.
+
+Parameters:
+- `hash` (string, required) — Transaction hash (0x + 64 hex chars)
+- `chain` (string, default: "ethereum") — Chain name
+
+REST: `GET /api/chain/tx?hash=0x...&chain=ethereum`
+
+---
+
+## Supported Chains
+
+| Chain | Native Token | RPC |
+|-------|-------------|-----|
+| Ethereum | ETH | ethereum-rpc.publicnode.com |
+| Base | ETH | base-rpc.publicnode.com |
+| Arbitrum | ETH | arbitrum-one-rpc.publicnode.com |
+| Optimism | ETH | optimism-rpc.publicnode.com |
+| Polygon | MATIC | polygon-bor-rpc.publicnode.com |
+| Celo | CELO | forno.celo.org |
+
+---
+
+## Authentication
+
+### Free Tier (default)
+No authentication required. Rate limited to 10 API calls per day per IP address.
+
+Response headers include:
+- `X-RateLimit-Limit: 10`
+- `X-RateLimit-Remaining: <n>`
+
+When limit is exceeded, returns HTTP 429 with upgrade options.
+
+### API Key ($9/mo)
+Unlimited API calls. Send key in header:
+```
+X-Api-Key: mcp_your_key_here
+```
+
+Or as query parameter: `?apikey=mcp_your_key_here`
+
+### x402 Pay-per-call ($0.005/call)
+No account needed. Pay with USDC, USDT, or cUSD on Celo network. x402-compatible agents handle payment automatically.
+
+Send base64-encoded payment proof in header:
+```
+X-Payment: <base64-encoded-json>
+```
+
+Payment JSON format: `{ "network": "celo", "token": "USDC", "txHash": "0x...", "amount": "0.005", "receiver": "0x..." }`
+
+---
+
+## Health Check
+
+`GET /health` — Returns `{ "status": "ok", "services": ["screenshot", "whois", "blockchain"] }`
+
+---
+
+## Security
+
+- SSRF protection: URL validation + DNS pre-resolution + Puppeteer request interception
+- Domain validation: regex allowlist prevents command injection
+- Rate limiting: IP-based daily limits on free tier
+- Resource limits: max 3 concurrent browsers, 50 SSE sessions, 50MB PDF cap
+- Async SSL: non-blocking openssl via child_process.spawn
+
+---
+
+## Self-hosted Setup
+
+```bash
+git clone https://github.com/san-npm/mcp-services.git
+cd mcp-services
+npm install
+node server.js  # runs on port 3100
+```
+
+Requires: Node.js 22+, Chromium (for screenshot/PDF/OCR/html2md)
+
+Environment variables:
+- `PORT` — Server port (default: 3100)
+- `CHROMIUM_PATH` — Path to Chromium binary (default: /usr/bin/chromium-browser)
+- `MAX_BROWSERS` — Max concurrent browser instances (default: 3)
+- `MAX_SSE_SESSIONS` — Max MCP SSE sessions (default: 50)
+- `FREE_DAILY_LIMIT` — Free tier daily call limit (default: 10)
+- `API_KEYS` — Comma-separated valid API keys
+- `ADMIN_SECRET` — Secret for admin endpoints
+- `X402_PRICE_USD` — x402 price per call (default: 0.005)
+- `X402_RECEIVER` — x402 payment receiver address
