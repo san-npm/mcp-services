@@ -7,6 +7,7 @@ import { createPublicClient, http, formatEther, formatUnits, isAddress } from 'v
 import { mainnet, base, arbitrum, optimism, polygon, celo } from 'viem/chains';
 import { spawn } from 'child_process';
 import { resolve, resolve4 } from 'dns/promises';
+import { authMiddleware, adminRoutes } from './auth.js';
 
 const PORT = process.env.PORT || 3100;
 const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
@@ -197,6 +198,10 @@ function parseCertOutput(raw) {
 // ─── Express API ───
 const app = express();
 app.use(express.json());
+
+// Auth & billing middleware
+app.use(authMiddleware);
+adminRoutes(app);
 
 // Health
 app.get('/health', (_, res) => res.json({ status: 'ok', services: ['screenshot', 'whois', 'blockchain'] }));
