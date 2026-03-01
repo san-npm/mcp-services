@@ -22,9 +22,11 @@ let priceId = null;
 async function ensureProduct() {
   if (priceId) return priceId;
 
-  // Search specifically by metadata
-  const products = await getStripe().products.list({ limit: 100, active: true });
-  let product = products.data.find(p => p.metadata?.type === 'mcp-api-key');
+  // Search by metadata — iterate all pages
+  let product = null;
+  for await (const p of getStripe().products.list({ active: true, limit: 100 })) {
+    if (p.metadata?.type === 'mcp-api-key') { product = p; break; }
+  }
 
   if (!product) {
     product = await getStripe().products.create({
@@ -52,8 +54,21 @@ async function ensureProduct() {
 
 // ─── Rate limit checkout creation ───
 const checkoutLimiter = new Map();
+let lastCheckoutCleanup = Date.now();
+
 function checkCheckoutRate(ip) {
   const now = Date.now();
+
+  // Purge stale entries every hour
+  if (now - lastCheckoutCleanup > 3600000) {
+    for (const [key, attempts] of checkoutLimiter) {
+      const recent = attempts.filter(t => now - t < 3600000);
+      if (recent.length === 0) checkoutLimiter.delete(key);
+      else checkoutLimiter.set(key, recent);
+    }
+    lastCheckoutCleanup = now;
+  }
+
   const attempts = checkoutLimiter.get(ip) || [];
   const recent = attempts.filter(t => now - t < 3600000); // last hour
   if (recent.length >= 5) return false; // max 5 checkouts per hour per IP
@@ -72,8 +87,8 @@ export function stripeRoutes(app) {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
-      console.warn('[stripe] No webhook secret configured');
-      return res.status(200).send('ok');
+      console.error('[stripe] STRIPE_WEBHOOK_SECRET not configured — rejecting webhook');
+      return res.status(500).send('Webhook not configured');
     }
 
     let event;
@@ -142,11 +157,21 @@ export function stripeRoutes(app) {
     }
   });
 
-  // Success — provision API key
+  // Success — provision API key (one-time retrieval)
+  const usedSessions = new Set();
+
   app.get('/billing/success', async (req, res) => {
     const { session_id } = req.query;
     if (!session_id || typeof session_id !== 'string' || session_id.length > 200) {
       return res.status(400).json({ error: 'Invalid session_id' });
+    }
+
+    // Prevent replay — each session_id can only provision once via this endpoint
+    if (usedSessions.has(session_id)) {
+      return res.json({
+        status: 'already_provisioned',
+        note: 'API key was already delivered. If you lost it, contact support.'
+      });
     }
 
     try {
@@ -158,12 +183,12 @@ export function stripeRoutes(app) {
         return res.status(402).json({ error: 'Payment not completed' });
       }
 
-      // Idempotent — check if key already provisioned
+      // Already provisioned — don't re-expose the key
       if (session.metadata?.api_key) {
+        usedSessions.add(session_id);
         return res.json({
-          status: 'active',
-          apiKey: session.metadata.api_key,
-          note: 'Store this key — use it in X-Api-Key header'
+          status: 'already_provisioned',
+          note: 'API key was already delivered. If you lost it, contact support.'
         });
       }
 
@@ -175,10 +200,18 @@ export function stripeRoutes(app) {
         stripeSessionId: session_id,
       });
 
-      // Store key in session metadata for idempotency
+      // Store key in session metadata for idempotency (server-side only)
       await getStripe().checkout.sessions.update(session_id, {
         metadata: { ...session.metadata, api_key: key }
       });
+
+      // Mark session as used
+      usedSessions.add(session_id);
+      // Cap set size
+      if (usedSessions.size > 10000) {
+        const first = usedSessions.values().next().value;
+        usedSessions.delete(first);
+      }
 
       console.log(`[stripe] Key provisioned for ${session.customer_details?.email} (sub: ${session.subscription?.id || session.subscription})`);
 
