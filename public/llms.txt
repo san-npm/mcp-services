@@ -1,0 +1,71 @@
+# MCP Services
+
+> Multi-tool MCP server for AI agents by SKILLS.ws
+
+## Overview
+
+MCP Services is an open MCP (Model Context Protocol) server providing 10 tools for AI agents via SSE transport, plus a REST API. Hosted at https://mcp.skills.ws.
+
+## MCP Connection
+
+SSE endpoint: https://mcp.skills.ws/mcp/sse
+
+```json
+{
+  "mcpServers": {
+    "mcp-services": {
+      "url": "https://mcp.skills.ws/mcp/sse"
+    }
+  }
+}
+```
+
+## Tools (10)
+
+1. **screenshot** — Take a PNG/JPEG screenshot of any URL. Parameters: url, format (png|jpeg), width, height, fullPage.
+2. **pdf** — Generate a PDF of any URL. Parameters: url.
+3. **html2md** — Fetch a URL and convert the page content to clean Markdown. Removes nav, ads, scripts. Parameters: url.
+4. **ocr** — Extract text from an image URL using OCR (Tesseract.js). Parameters: url.
+5. **whois** — WHOIS lookup for any domain. Parameters: domain.
+6. **dns** — DNS record lookup (A, AAAA, MX, NS, TXT, CNAME, SOA, or ALL). Parameters: domain, type.
+7. **ssl** — SSL certificate details and expiry check. Parameters: domain.
+8. **balance** — Native token balance on 6 EVM chains. Parameters: address, chain (ethereum|base|arbitrum|optimism|polygon|celo).
+9. **erc20_balance** — ERC20 token balance for an address. Parameters: address, token, chain.
+10. **transaction** — Transaction details by hash. Parameters: hash, chain.
+
+## REST API Endpoints
+
+- GET /health — Service health check
+- GET /api/screenshot?url=<url>&format=png|jpeg&width=1280&height=800&fullPage=false
+- GET /api/pdf?url=<url>
+- GET /api/html2md?url=<url>
+- GET /api/ocr?url=<image_url>
+- GET /api/whois?domain=<domain>
+- GET /api/dns?domain=<domain>&type=A|AAAA|MX|NS|TXT|CNAME|SOA|ALL
+- GET /api/ssl?domain=<domain>
+- GET /api/chain/balance?address=<addr>&chain=ethereum
+- GET /api/chain/tx?hash=<hash>&chain=ethereum
+- GET /api/chain/erc20?address=<addr>&token=<contract>&chain=ethereum
+
+## Supported Chains
+
+Ethereum, Base, Arbitrum, Optimism, Polygon, Celo
+
+## Authentication
+
+Three tiers:
+- **Free**: 10 calls/day per IP, no auth required
+- **API Key**: Unlimited calls, send `X-Api-Key` header, $9/mo
+- **x402**: Pay-per-call ($0.005) with stablecoins (USDC, USDT, cUSD) on Celo via `X-Payment` header
+
+## Stack
+
+Node.js 22 + Express, Puppeteer (Chromium), viem (blockchain), whois-json, MCP SDK (SSE transport), x402 payment protocol. Hosted on Aleph Cloud.
+
+## Links
+
+- Website: https://mcp.skills.ws
+- GitHub: https://github.com/san-npm/mcp-services
+- Parent: https://skills.ws
+- License: MIT
+- Author: Commit Media SARL (https://openletz.com)

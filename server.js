@@ -7,7 +7,12 @@ import { createPublicClient, http, formatEther, formatUnits, isAddress } from 'v
 import { mainnet, base, arbitrum, optimism, polygon, celo } from 'viem/chains';
 import { spawn } from 'child_process';
 import { resolve, resolve4 } from 'dns/promises';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { authMiddleware, adminRoutes } from './auth.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const PORT = process.env.PORT || 3100;
 const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
@@ -202,6 +207,21 @@ app.use(express.json());
 // Auth & billing middleware
 app.use(authMiddleware);
 adminRoutes(app);
+
+// ─── Static files & SEO ───
+app.use(express.static(join(__dirname, 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    }
+  }
+}));
+
+// Landing page fallback
+app.get('/', (_, res) => {
+  res.sendFile(join(__dirname, 'public', 'index.html'));
+});
 
 // Health
 app.get('/health', (_, res) => res.json({ status: 'ok', services: ['screenshot', 'whois', 'blockchain'] }));

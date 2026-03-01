@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP Services — Multi-Tool MCP Server for AI Agents | SKILLS.ws</title>
+  <meta name="description" content="Open MCP server with 10 tools for AI agents: screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data. Free tier + API keys + x402 pay-per-call.">
+  <meta name="keywords" content="MCP server, Model Context Protocol, AI agents, screenshot API, WHOIS API, DNS lookup, SSL checker, OCR API, blockchain API, HTML to Markdown, Ethereum, Base, Arbitrum, Celo, Polygon, Optimism">
+  <meta name="author" content="Commit Media SARL">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://mcp.skills.ws">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="MCP Services — Multi-Tool MCP Server for AI Agents">
+  <meta property="og:description" content="10 tools for AI agents: screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data. Connect via MCP SSE or REST API.">
+  <meta property="og:url" content="https://mcp.skills.ws">
+  <meta property="og:site_name" content="MCP Services by SKILLS.ws">
+  <meta property="og:locale" content="en_US">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="MCP Services — Multi-Tool MCP Server for AI Agents">
+  <meta name="twitter:description" content="10 tools for AI agents: screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebAPI",
+    "name": "MCP Services",
+    "description": "Multi-tool MCP server and REST API for AI agents. 10 tools across screenshots, domain intelligence, content extraction, and multi-chain blockchain data.",
+    "url": "https://mcp.skills.ws",
+    "provider": {
+      "@type": "Organization",
+      "name": "Commit Media SARL",
+      "url": "https://skills.ws"
+    },
+    "documentation": "https://github.com/san-npm/mcp-services",
+    "termsOfService": "https://mcp.skills.ws",
+    "offers": [
+      {
+        "@type": "Offer",
+        "name": "Free Tier",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "10 API calls per day per IP, no authentication required"
+      },
+      {
+        "@type": "Offer",
+        "name": "API Key",
+        "price": "9",
+        "priceCurrency": "USD",
+        "description": "Unlimited API calls with X-Api-Key header"
+      },
+      {
+        "@type": "Offer",
+        "name": "x402 Pay-per-call",
+        "price": "0.005",
+        "priceCurrency": "USD",
+        "description": "Pay per API call with stablecoins on Celo"
+      }
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "MCP Services",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any",
+    "url": "https://mcp.skills.ws",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "softwareVersion": "1.0.0",
+    "author": { "@type": "Organization", "name": "Commit Media SARL" },
+    "license": "https://opensource.org/licenses/MIT"
+  }
+  </script>
+
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#e5e5e5;min-height:100vh;display:flex;align-items:center;justify-content:center;line-height:1.6}
+    .c{max-width:680px;padding:2rem}
+    h1{font-size:1.6rem;margin-bottom:.25rem;color:#fff;letter-spacing:-.02em}
+    .tagline{color:#888;margin-bottom:1.5rem;font-size:.95rem}
+    h2{font-size:1rem;color:#fff;margin:1.5rem 0 .5rem;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+    .tools{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:.3rem .5rem}
+    .tools li{padding:.35rem 0;font-size:.85rem}
+    .tools .name{color:#60a5fa;font-family:monospace}
+    .tools .desc{color:#666;font-size:.8rem}
+    .endpoints{list-style:none}
+    .endpoints li{padding:.3rem 0;font-family:monospace;font-size:.85rem}
+    .endpoints a{color:#60a5fa;text-decoration:none}
+    .endpoints a:hover{text-decoration:underline}
+    .connect{background:#111;border:1px solid #222;padding:1rem;font-family:monospace;font-size:.8rem;overflow-x:auto;margin:.5rem 0;border-radius:4px;color:#a5d6ff}
+    .tiers{list-style:none}
+    .tiers li{padding:.25rem 0;font-size:.85rem}
+    .tiers .tier{color:#60a5fa;font-weight:600;display:inline-block;min-width:80px}
+    footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #1a1a1a;color:#555;font-size:.8rem}
+    footer a{color:#555;text-decoration:none}
+    footer a:hover{color:#888}
+    @media(max-width:500px){.tools{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="c">
+    <h1>MCP Services</h1>
+    <p class="tagline">Multi-tool MCP server for AI agents. 10 tools across screenshots, domain intelligence, content extraction, and multi-chain blockchain data.</p>
+
+    <h2>MCP Tools</h2>
+    <ul class="tools">
+      <li><span class="name">screenshot</span> <span class="desc">PNG/JPEG of any URL</span></li>
+      <li><span class="name">pdf</span> <span class="desc">Generate PDF of any URL</span></li>
+      <li><span class="name">html2md</span> <span class="desc">URL to clean Markdown</span></li>
+      <li><span class="name">ocr</span> <span class="desc">Image text extraction</span></li>
+      <li><span class="name">whois</span> <span class="desc">Domain WHOIS lookup</span></li>
+      <li><span class="name">dns</span> <span class="desc">DNS records (A, MX, etc.)</span></li>
+      <li><span class="name">ssl</span> <span class="desc">SSL cert + expiry check</span></li>
+      <li><span class="name">balance</span> <span class="desc">Native token (6 chains)</span></li>
+      <li><span class="name">erc20_balance</span> <span class="desc">ERC20 token balance</span></li>
+      <li><span class="name">transaction</span> <span class="desc">TX details by hash</span></li>
+    </ul>
+
+    <h2>Connect via MCP</h2>
+    <pre class="connect">{
+  "mcpServers": {
+    "mcp-services": {
+      "url": "https://mcp.skills.ws/mcp/sse"
+    }
+  }
+}</pre>
+
+    <h2>REST API</h2>
+    <ul class="endpoints">
+      <li><a href="/health">/health</a></li>
+      <li>/api/screenshot?url=&lt;url&gt;&amp;format=png|jpeg</li>
+      <li>/api/pdf?url=&lt;url&gt;</li>
+      <li>/api/html2md?url=&lt;url&gt;</li>
+      <li>/api/ocr?url=&lt;image_url&gt;</li>
+      <li><a href="/api/whois?domain=skills.ws">/api/whois?domain=</a></li>
+      <li><a href="/api/dns?domain=skills.ws&type=ALL">/api/dns?domain=&amp;type=ALL</a></li>
+      <li><a href="/api/ssl?domain=skills.ws">/api/ssl?domain=</a></li>
+      <li>/api/chain/balance?address=&amp;chain=ethereum</li>
+      <li>/api/chain/erc20?address=&amp;token=&amp;chain=</li>
+      <li>/api/chain/tx?hash=&amp;chain=ethereum</li>
+    </ul>
+
+    <h2>Pricing</h2>
+    <ul class="tiers">
+      <li><span class="tier">Free</span> 10 calls/day per IP, no auth</li>
+      <li><span class="tier">API Key</span> Unlimited, $9/mo</li>
+      <li><span class="tier">x402</span> $0.005/call, pay with stablecoins on Celo</li>
+    </ul>
+
+    <h2>Chains</h2>
+    <p style="font-size:.85rem;color:#888">Ethereum, Base, Arbitrum, Optimism, Polygon, Celo</p>
+
+    <footer>
+      <a href="https://github.com/san-npm/mcp-services">GitHub</a> &middot;
+      <a href="https://skills.ws">SKILLS.ws</a> &middot;
+      <a href="/sitemap.xml">Sitemap</a> &middot;
+      <a href="/llms.txt">llms.txt</a> &middot;
+      MIT &copy; <a href="https://openletz.com">Commit Media SARL</a>
+    </footer>
+  </main>
+</body>
+</html>
