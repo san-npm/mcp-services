@@ -1,7 +1,7 @@
 {
   "name": "mcp-services",
   "version": "1.0.0",
-  "description": "MCP + x402 services: Screenshot, WHOIS/DNS, Blockchain data",
+  "description": "Multi-tool MCP server + REST API for AI agents. Screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.",
   "type": "module",
   "scripts": {
     "start": "node server.js"
@@ -12,5 +12,30 @@
     "puppeteer-core": "^24.0.0",
     "whois-json": "^2.0.4",
     "viem": "^2.21.0"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/san-npm/mcp-services"
+  },
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "screenshot",
+    "pdf",
+    "whois",
+    "dns",
+    "ssl",
+    "blockchain",
+    "ocr",
+    "html2md",
+    "ethereum",
+    "celo",
+    "base",
+    "arbitrum",
+    "polygon",
+    "optimism"
+  ],
+  "homepage": "https://github.com/san-npm/mcp-services",
+  "author": "Commit Media SARL"
 }
