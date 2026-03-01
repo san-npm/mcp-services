@@ -90,7 +90,7 @@ export function authMiddleware(req, res, next) {
         price: X402_PRICE_USD,
         currency: 'USD',
         receiver: X402_RECEIVER,
-        networks: ['base', 'celo', 'arbitrum', 'polygon'],
+        networks: ['base', 'celo'],
         accepts: ['USDC', 'USDT'],
         description: 'Pay per API call with stablecoins'
       }
@@ -123,7 +123,7 @@ export function authMiddleware(req, res, next) {
           price: X402_PRICE_USD,
           currency: 'USD',
           receiver: X402_RECEIVER,
-          networks: ['base', 'celo', 'arbitrum', 'polygon'],
+          networks: ['base', 'celo'],
           accepts: ['USDC', 'USDT']
         }
       }
