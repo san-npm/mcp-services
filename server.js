@@ -3,13 +3,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import puppeteer from 'puppeteer-core';
 import whois from 'whois-json';
-import { createPublicClient, http, formatEther, formatUnits } from 'viem';
+import { createPublicClient, http, formatEther, formatUnits, isAddress } from 'viem';
 import { mainnet, base, arbitrum, optimism, polygon, celo } from 'viem/chains';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { resolve } from 'dns/promises';
-import { readFileSync } from 'fs';
 
 const PORT = process.env.PORT || 3100;
+const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
+let activeBrowsers = 0;
 
 // ─── Chain configs ───
 const CHAINS = {
@@ -21,9 +22,31 @@ const CHAINS = {
   celo: { chain: celo, rpc: 'https://forno.celo.org' },
 };
 
-// ─── Express API (for x402 / direct HTTP) ───
-const app = express();
-app.use(express.json());
+// ─── Shared helpers ───
+
+function launchBrowser() {
+  return puppeteer.launch({
+    executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium-browser',
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+  });
+}
+
+async function withBrowser(fn, res) {
+  if (activeBrowsers >= MAX_BROWSERS) {
+    if (res) return res.status(429).json({ error: 'Too many concurrent requests, try again later' });
+    throw new Error('Too many concurrent requests');
+  }
+  activeBrowsers++;
+  let browser;
+  try {
+    browser = await launchBrowser();
+    return await fn(browser);
+  } finally {
+    activeBrowsers--;
+    if (browser) await browser.close();
+  }
+}
 
 // URL validation — block SSRF
 function validateUrl(urlStr) {
@@ -31,13 +54,61 @@ function validateUrl(urlStr) {
     const u = new URL(urlStr);
     if (!['http:', 'https:'].includes(u.protocol)) return false;
     const host = u.hostname.toLowerCase();
+
+    // Loopback
     if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
-    if (host.startsWith('10.') || host.startsWith('172.16.') || host.startsWith('192.168.')) return false;
-    if (host === '169.254.169.254') return false;
+    if (host === '[::1]') return false;
+
+    // IPv4-mapped IPv6 (::ffff:x.x.x.x)
+    const v4mapped = host.match(/^(?:\[?::ffff:)?(\d+\.\d+\.\d+\.\d+)\]?$/);
+    const ipv4 = v4mapped ? v4mapped[1] : host;
+
+    // RFC 1918 private ranges
+    const parts = ipv4.split('.');
+    if (parts.length === 4 && parts.every(p => !isNaN(p))) {
+      const [a, b] = parts.map(Number);
+      if (a === 10) return false;
+      if (a === 172 && b >= 16 && b <= 31) return false;
+      if (a === 192 && b === 168) return false;
+      if (a === 127) return false;
+      if (a === 169 && b === 254) return false; // Link-local + cloud metadata
+      if (a === 0) return false;
+    }
+
+    // IPv6 private ranges
+    if (host.startsWith('[') || host.includes(':')) {
+      const clean = host.replace(/^\[|\]$/g, '').toLowerCase();
+      if (clean.startsWith('fc') || clean.startsWith('fd')) return false; // Unique local (fc00::/7)
+      if (clean.startsWith('fe80')) return false; // Link-local
+      if (clean === '::' || clean === '::1') return false;
+      if (clean.startsWith('::ffff:')) return false; // Already checked above but be safe
+    }
+
+    // Cloud metadata and internal domains
     if (host.endsWith('.internal') || host.endsWith('.local')) return false;
+    if (host === 'metadata.google.internal') return false;
+
     return true;
   } catch { return false; }
 }
+
+// Domain validation — prevent command injection
+function validateDomain(domain) {
+  if (!domain || typeof domain !== 'string') return false;
+  if (domain.length > 253) return false;
+  return /^[a-zA-Z0-9][a-zA-Z0-9.\-]*[a-zA-Z0-9]$/.test(domain);
+}
+
+// Clamp viewport dimensions
+function clampInt(val, fallback, min, max) {
+  const n = parseInt(val, 10);
+  if (isNaN(n)) return fallback;
+  return Math.min(Math.max(n, min), max);
+}
+
+// ─── Express API ───
+const app = express();
+app.use(express.json());
 
 // Health
 app.get('/health', (_, res) => res.json({ status: 'ok', services: ['screenshot', 'whois', 'blockchain'] }));
@@ -47,37 +118,34 @@ app.get('/api/screenshot', async (req, res) => {
   const { url, format = 'png', width = 1280, height = 800, fullPage = false } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter required' });
   if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
-  
-  let browser;
+
+  const w = clampInt(width, 1280, 100, 3840);
+  const h = clampInt(height, 800, 100, 2160);
+
   try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser',
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
-    const page = await browser.newPage();
-    await page.setViewport({ width: parseInt(width), height: parseInt(height) });
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    
-    const screenshot = await page.screenshot({ 
-      type: format === 'jpeg' ? 'jpeg' : 'png',
-      fullPage: fullPage === 'true',
-      encoding: 'base64'
-    });
-    
-    res.json({ 
-      url, 
-      format,
-      width: parseInt(width),
-      height: parseInt(height),
-      fullPage: fullPage === 'true',
-      image: `data:image/${format};base64,${screenshot}`,
-      size: screenshot.length 
-    });
+    const result = await withBrowser(async (browser) => {
+      const page = await browser.newPage();
+      await page.setViewport({ width: w, height: h });
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+      const screenshot = await page.screenshot({
+        type: format === 'jpeg' ? 'jpeg' : 'png',
+        fullPage: fullPage === 'true',
+        encoding: 'base64'
+      });
+
+      return {
+        url, format,
+        width: w, height: h,
+        fullPage: fullPage === 'true',
+        image: `data:image/${format};base64,${screenshot}`,
+        size: screenshot.length
+      };
+    }, res);
+    if (result) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (browser) await browser.close();
+    console.error('[screenshot]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Screenshot failed' });
   }
 });
 
@@ -86,25 +154,21 @@ app.get('/api/pdf', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter required' });
   if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
-  
-  let browser;
+
   try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser',
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    const pdf = await page.pdf({ format: 'A4', printBackground: true });
-    
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="page.pdf"`);
-    res.send(pdf);
+    const pdf = await withBrowser(async (browser) => {
+      const page = await browser.newPage();
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+      return page.pdf({ format: 'A4', printBackground: true });
+    }, res);
+    if (pdf) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="page.pdf"`);
+      res.send(pdf);
+    }
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (browser) await browser.close();
+    console.error('[pdf]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'PDF generation failed' });
   }
 });
 
@@ -112,12 +176,14 @@ app.get('/api/pdf', async (req, res) => {
 app.get('/api/whois', async (req, res) => {
   const { domain } = req.query;
   if (!domain) return res.status(400).json({ error: 'domain parameter required' });
-  
+  if (!validateDomain(domain)) return res.status(400).json({ error: 'Invalid domain' });
+
   try {
     const result = await whois(domain);
     res.json({ domain, whois: result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[whois]', err);
+    res.status(500).json({ error: 'WHOIS lookup failed' });
   }
 });
 
@@ -125,11 +191,12 @@ app.get('/api/whois', async (req, res) => {
 app.get('/api/dns', async (req, res) => {
   const { domain, type = 'A' } = req.query;
   if (!domain) return res.status(400).json({ error: 'domain parameter required' });
-  
+  if (!validateDomain(domain)) return res.status(400).json({ error: 'Invalid domain' });
+
   try {
     const records = {};
     const types = type === 'ALL' ? ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME', 'SOA'] : [type.toUpperCase()];
-    
+
     for (const t of types) {
       try {
         switch (t) {
@@ -147,7 +214,8 @@ app.get('/api/dns', async (req, res) => {
     }
     res.json({ domain, records });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[dns]', err);
+    res.status(500).json({ error: 'DNS lookup failed' });
   }
 });
 
@@ -155,24 +223,25 @@ app.get('/api/dns', async (req, res) => {
 app.get('/api/chain/balance', async (req, res) => {
   const { address, chain = 'ethereum' } = req.query;
   if (!address) return res.status(400).json({ error: 'address parameter required' });
-  
+  if (!isAddress(address)) return res.status(400).json({ error: 'Invalid address' });
+
   const chainConfig = CHAINS[chain.toLowerCase()];
   if (!chainConfig) return res.status(400).json({ error: `Unknown chain: ${chain}. Available: ${Object.keys(CHAINS).join(', ')}` });
-  
+
   try {
     const client = createPublicClient({ chain: chainConfig.chain, transport: http(chainConfig.rpc) });
     const balance = await client.getBalance({ address });
     const symbol = chainConfig.chain.nativeCurrency.symbol;
-    
-    res.json({ 
-      address, 
-      chain, 
+
+    res.json({
+      address, chain,
       balance: formatEther(balance),
       symbol,
       raw: balance.toString()
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[balance]', err);
+    res.status(500).json({ error: 'Balance lookup failed' });
   }
 });
 
@@ -180,16 +249,17 @@ app.get('/api/chain/balance', async (req, res) => {
 app.get('/api/chain/tx', async (req, res) => {
   const { hash, chain = 'ethereum' } = req.query;
   if (!hash) return res.status(400).json({ error: 'hash parameter required' });
-  
+  if (!/^0x[a-fA-F0-9]{64}$/.test(hash)) return res.status(400).json({ error: 'Invalid transaction hash' });
+
   const chainConfig = CHAINS[chain.toLowerCase()];
   if (!chainConfig) return res.status(400).json({ error: `Unknown chain: ${chain}` });
-  
+
   try {
     const client = createPublicClient({ chain: chainConfig.chain, transport: http(chainConfig.rpc) });
     const tx = await client.getTransaction({ hash });
     const receipt = await client.getTransactionReceipt({ hash });
-    
-    res.json({ 
+
+    res.json({
       hash, chain,
       from: tx.from,
       to: tx.to,
@@ -199,7 +269,8 @@ app.get('/api/chain/tx', async (req, res) => {
       blockNumber: Number(tx.blockNumber)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[tx]', err);
+    res.status(500).json({ error: 'Transaction lookup failed' });
   }
 });
 
@@ -207,10 +278,12 @@ app.get('/api/chain/tx', async (req, res) => {
 app.get('/api/chain/erc20', async (req, res) => {
   const { address, token, chain = 'ethereum' } = req.query;
   if (!address || !token) return res.status(400).json({ error: 'address and token parameters required' });
-  
+  if (!isAddress(address)) return res.status(400).json({ error: 'Invalid address' });
+  if (!isAddress(token)) return res.status(400).json({ error: 'Invalid token address' });
+
   const chainConfig = CHAINS[chain.toLowerCase()];
   if (!chainConfig) return res.status(400).json({ error: `Unknown chain: ${chain}` });
-  
+
   try {
     const client = createPublicClient({ chain: chainConfig.chain, transport: http(chainConfig.rpc) });
     const erc20Abi = [
@@ -218,16 +291,17 @@ app.get('/api/chain/erc20', async (req, res) => {
       { name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
       { name: 'symbol', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
     ];
-    
+
     const [balance, decimals, symbol] = await Promise.all([
       client.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [address] }),
       client.readContract({ address: token, abi: erc20Abi, functionName: 'decimals' }),
       client.readContract({ address: token, abi: erc20Abi, functionName: 'symbol' }),
     ]);
-    
+
     res.json({ address, token, chain, balance: formatUnits(balance, decimals), symbol, decimals });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[erc20]', err);
+    res.status(500).json({ error: 'ERC20 balance lookup failed' });
   }
 });
 
@@ -236,64 +310,58 @@ app.get('/api/html2md', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter required' });
   if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
-  
-  let browser;
+
   try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser',
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    
-    // Extract readable content and convert to markdown-like text
-    const content = await page.evaluate(() => {
-      // Remove scripts, styles, nav, footer, ads
-      const remove = document.querySelectorAll('script, style, nav, footer, aside, [role="banner"], [role="navigation"], .ad, .ads, .sidebar');
-      remove.forEach(el => el.remove());
-      
-      const article = document.querySelector('article, main, [role="main"]') || document.body;
-      
-      function nodeToMd(node, depth = 0) {
-        if (node.nodeType === 3) return node.textContent;
-        if (node.nodeType !== 1) return '';
-        
-        const tag = node.tagName.toLowerCase();
-        const children = Array.from(node.childNodes).map(c => nodeToMd(c, depth)).join('');
-        
-        switch (tag) {
-          case 'h1': return `\n# ${children.trim()}\n`;
-          case 'h2': return `\n## ${children.trim()}\n`;
-          case 'h3': return `\n### ${children.trim()}\n`;
-          case 'h4': return `\n#### ${children.trim()}\n`;
-          case 'p': return `\n${children.trim()}\n`;
-          case 'br': return '\n';
-          case 'strong': case 'b': return `**${children.trim()}**`;
-          case 'em': case 'i': return `*${children.trim()}*`;
-          case 'a': return `[${children.trim()}](${node.href || ''})`;
-          case 'code': return `\`${children.trim()}\``;
-          case 'pre': return `\n\`\`\`\n${children.trim()}\n\`\`\`\n`;
-          case 'li': return `- ${children.trim()}\n`;
-          case 'ul': case 'ol': return `\n${children}`;
-          case 'blockquote': return `\n> ${children.trim()}\n`;
-          case 'img': return `![${node.alt || ''}](${node.src || ''})`;
-          case 'table': return `\n${children}\n`;
-          case 'tr': return children + '\n';
-          case 'th': case 'td': return `| ${children.trim()} `;
-          default: return children;
+    const result = await withBrowser(async (browser) => {
+      const page = await browser.newPage();
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+      const content = await page.evaluate(() => {
+        const remove = document.querySelectorAll('script, style, nav, footer, aside, [role="banner"], [role="navigation"], .ad, .ads, .sidebar');
+        remove.forEach(el => el.remove());
+
+        const article = document.querySelector('article, main, [role="main"]') || document.body;
+
+        function nodeToMd(node, depth = 0) {
+          if (node.nodeType === 3) return node.textContent;
+          if (node.nodeType !== 1) return '';
+
+          const tag = node.tagName.toLowerCase();
+          const children = Array.from(node.childNodes).map(c => nodeToMd(c, depth)).join('');
+
+          switch (tag) {
+            case 'h1': return `\n# ${children.trim()}\n`;
+            case 'h2': return `\n## ${children.trim()}\n`;
+            case 'h3': return `\n### ${children.trim()}\n`;
+            case 'h4': return `\n#### ${children.trim()}\n`;
+            case 'p': return `\n${children.trim()}\n`;
+            case 'br': return '\n';
+            case 'strong': case 'b': return `**${children.trim()}**`;
+            case 'em': case 'i': return `*${children.trim()}*`;
+            case 'a': return `[${children.trim()}](${node.href || ''})`;
+            case 'code': return `\`${children.trim()}\``;
+            case 'pre': return `\n\`\`\`\n${children.trim()}\n\`\`\`\n`;
+            case 'li': return `- ${children.trim()}\n`;
+            case 'ul': case 'ol': return `\n${children}`;
+            case 'blockquote': return `\n> ${children.trim()}\n`;
+            case 'img': return `![${node.alt || ''}](${node.src || ''})`;
+            case 'table': return `\n${children}\n`;
+            case 'tr': return children + '\n';
+            case 'th': case 'td': return `| ${children.trim()} `;
+            default: return children;
+          }
         }
-      }
-      
-      return nodeToMd(article).replace(/\n{3,}/g, '\n\n').trim();
-    });
-    
-    const title = await page.title();
-    res.json({ url, title, markdown: content, length: content.length });
+
+        return nodeToMd(article).replace(/\n{3,}/g, '\n\n').trim();
+      });
+
+      const title = await page.title();
+      return { url, title, markdown: content, length: content.length };
+    }, res);
+    if (result) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (browser) await browser.close();
+    console.error('[html2md]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Content extraction failed' });
   }
 });
 
@@ -302,51 +370,49 @@ app.get('/api/ocr', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter required' });
   if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
-  
-  let browser;
+
   try {
-    // Download image and use Tesseract via Chromium's canvas
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser',
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
-    const page = await browser.newPage();
-    
-    // Load Tesseract.js via CDN and process the image
-    await page.setContent(`
-      <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-      <img id="img" crossorigin="anonymous" />
-    `);
-    
-    const text = await page.evaluate(async (imageUrl) => {
-      const { createWorker } = window.Tesseract;
-      const worker = await createWorker('eng');
-      const { data: { text } } = await worker.recognize(imageUrl);
-      await worker.terminate();
-      return text;
-    }, url);
-    
-    res.json({ url, text: text.trim(), length: text.trim().length });
+    const result = await withBrowser(async (browser) => {
+      const page = await browser.newPage();
+
+      await page.setContent(`
+        <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+        <img id="img" crossorigin="anonymous" />
+      `);
+
+      const text = await page.evaluate(async (imageUrl) => {
+        const { createWorker } = window.Tesseract;
+        const worker = await createWorker('eng');
+        const { data: { text } } = await worker.recognize(imageUrl);
+        await worker.terminate();
+        return text;
+      }, url);
+
+      return { url, text: text.trim(), length: text.trim().length };
+    }, res);
+    if (result) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (browser) await browser.close();
+    console.error('[ocr]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'OCR extraction failed' });
   }
 });
 
-// SSL Certificate checker
+// SSL Certificate checker — uses spawnSync to avoid shell injection
 app.get('/api/ssl', async (req, res) => {
   const { domain } = req.query;
   if (!domain) return res.status(400).json({ error: 'domain parameter required' });
-  
+  if (!validateDomain(domain)) return res.status(400).json({ error: 'Invalid domain' });
+
   try {
-    const { execSync } = await import('child_process');
-    const raw = execSync(
-      `echo | openssl s_client -servername ${domain} -connect ${domain}:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -serial -fingerprint 2>/dev/null`,
-      { timeout: 10000, encoding: 'utf-8' }
-    );
-    
+    const connect = spawnSync('openssl', [
+      's_client', '-servername', domain, '-connect', `${domain}:443`
+    ], { input: '', timeout: 10000, encoding: 'utf-8' });
+
+    const x509 = spawnSync('openssl', [
+      'x509', '-noout', '-subject', '-issuer', '-dates', '-serial', '-fingerprint'
+    ], { input: connect.stdout || '', timeout: 5000, encoding: 'utf-8' });
+
+    const raw = x509.stdout || '';
     const lines = raw.split('\n').filter(Boolean);
     const cert = {};
     for (const line of lines) {
@@ -359,8 +425,7 @@ app.get('/api/ssl', async (req, res) => {
       else if (k === 'serial') cert.serial = val.join('=').trim();
       else if (k.includes('fingerprint')) cert.fingerprint = val.join('=').trim();
     }
-    
-    // Check expiry
+
     if (cert.validUntil) {
       const expiry = new Date(cert.validUntil);
       const daysLeft = Math.floor((expiry - new Date()) / 86400000);
@@ -368,10 +433,11 @@ app.get('/api/ssl', async (req, res) => {
       cert.expired = daysLeft < 0;
       cert.expiringSoon = daysLeft >= 0 && daysLeft < 30;
     }
-    
+
     res.json({ domain, certificate: cert });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[ssl]', err);
+    res.status(500).json({ error: 'SSL check failed' });
   }
 });
 
@@ -389,45 +455,34 @@ mcpServer.tool('screenshot', 'Take a screenshot of any URL. Returns base64 PNG/J
   height: { type: 'number', description: 'Viewport height', default: 800 },
   fullPage: { type: 'boolean', description: 'Capture full scrollable page', default: false },
 }, async ({ url, format = 'png', width = 1280, height = 800, fullPage = false }) => {
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser',
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  const w = clampInt(width, 1280, 100, 3840);
+  const h = clampInt(height, 800, 100, 2160);
+  return withBrowser(async (browser) => {
     const page = await browser.newPage();
-    await page.setViewport({ width, height });
+    await page.setViewport({ width: w, height: h });
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
     const screenshot = await page.screenshot({ type: format === 'jpeg' ? 'jpeg' : 'png', fullPage, encoding: 'base64' });
     return { content: [{ type: 'image', data: screenshot, mimeType: `image/${format}` }] };
-  } finally {
-    if (browser) await browser.close();
-  }
+  });
 });
 
 mcpServer.tool('pdf', 'Generate a PDF of any URL.', {
   url: { type: 'string', description: 'URL to convert to PDF' },
 }, async ({ url }) => {
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser',
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  return withBrowser(async (browser) => {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
     const pdf = await page.pdf({ format: 'A4', printBackground: true });
     return { content: [{ type: 'resource', uri: `data:application/pdf;base64,${pdf.toString('base64')}`, mimeType: 'application/pdf' }] };
-  } finally {
-    if (browser) await browser.close();
-  }
+  });
 });
 
 mcpServer.tool('whois', 'Look up WHOIS information for a domain.', {
   domain: { type: 'string', description: 'Domain name to look up' },
 }, async ({ domain }) => {
+  if (!validateDomain(domain)) throw new Error('Invalid domain');
   const result = await whois(domain);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
@@ -436,6 +491,7 @@ mcpServer.tool('dns', 'Look up DNS records for a domain.', {
   domain: { type: 'string', description: 'Domain name' },
   type: { type: 'string', description: 'Record type: A, AAAA, MX, NS, TXT, CNAME, SOA, or ALL', default: 'ALL' },
 }, async ({ domain, type = 'ALL' }) => {
+  if (!validateDomain(domain)) throw new Error('Invalid domain');
   const records = {};
   const types = type === 'ALL' ? ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME', 'SOA'] : [type.toUpperCase()];
   for (const t of types) {
@@ -450,6 +506,7 @@ mcpServer.tool('balance', 'Get native token balance for an address on any suppor
   address: { type: 'string', description: 'Wallet address' },
   chain: { type: 'string', description: 'Chain name: ethereum, base, arbitrum, optimism, polygon, celo', default: 'ethereum' },
 }, async ({ address, chain = 'ethereum' }) => {
+  if (!isAddress(address)) throw new Error('Invalid address');
   const chainConfig = CHAINS[chain.toLowerCase()];
   if (!chainConfig) throw new Error(`Unknown chain: ${chain}`);
   const client = createPublicClient({ chain: chainConfig.chain, transport: http(chainConfig.rpc) });
@@ -463,6 +520,8 @@ mcpServer.tool('erc20_balance', 'Get ERC20 token balance for an address.', {
   token: { type: 'string', description: 'Token contract address' },
   chain: { type: 'string', description: 'Chain name', default: 'ethereum' },
 }, async ({ address, token, chain = 'ethereum' }) => {
+  if (!isAddress(address)) throw new Error('Invalid address');
+  if (!isAddress(token)) throw new Error('Invalid token address');
   const chainConfig = CHAINS[chain.toLowerCase()];
   if (!chainConfig) throw new Error(`Unknown chain: ${chain}`);
   const client = createPublicClient({ chain: chainConfig.chain, transport: http(chainConfig.rpc) });
@@ -483,6 +542,7 @@ mcpServer.tool('transaction', 'Get transaction details by hash.', {
   hash: { type: 'string', description: 'Transaction hash' },
   chain: { type: 'string', description: 'Chain name', default: 'ethereum' },
 }, async ({ hash, chain = 'ethereum' }) => {
+  if (!/^0x[a-fA-F0-9]{64}$/.test(hash)) throw new Error('Invalid transaction hash');
   const chainConfig = CHAINS[chain.toLowerCase()];
   if (!chainConfig) throw new Error(`Unknown chain: ${chain}`);
   const client = createPublicClient({ chain: chainConfig.chain, transport: http(chainConfig.rpc) });
@@ -498,12 +558,7 @@ mcpServer.tool('html2md', 'Fetch a URL and convert the page content to clean Mar
   url: { type: 'string', description: 'URL to fetch and convert' },
 }, async ({ url }) => {
   if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser', headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
+  return withBrowser(async (browser) => {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
     const content = await page.evaluate(() => {
@@ -513,19 +568,14 @@ mcpServer.tool('html2md', 'Fetch a URL and convert the page content to clean Mar
     });
     const title = await page.title();
     return { content: [{ type: 'text', text: `# ${title}\n\n${content.replace(/\n{3,}/g, '\n\n').trim()}` }] };
-  } finally { if (browser) await browser.close(); }
+  });
 });
 
 mcpServer.tool('ocr', 'Extract text from an image URL using OCR.', {
   url: { type: 'string', description: 'Image URL to extract text from' },
 }, async ({ url }) => {
   if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium-browser', headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
+  return withBrowser(async (browser) => {
     const page = await browser.newPage();
     await page.setContent(`<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>`);
     const text = await page.evaluate(async (imageUrl) => {
@@ -536,18 +586,22 @@ mcpServer.tool('ocr', 'Extract text from an image URL using OCR.', {
       return text;
     }, url);
     return { content: [{ type: 'text', text: text.trim() }] };
-  } finally { if (browser) await browser.close(); }
+  });
 });
 
 mcpServer.tool('ssl', 'Check SSL certificate details for a domain. Returns issuer, validity dates, expiry status.', {
   domain: { type: 'string', description: 'Domain to check SSL certificate for' },
 }, async ({ domain }) => {
-  const { execSync } = await import('child_process');
-  const raw = execSync(
-    `echo | openssl s_client -servername ${domain} -connect ${domain}:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -serial 2>/dev/null`,
-    { timeout: 10000, encoding: 'utf-8' }
-  );
-  const lines = raw.split('\n').filter(Boolean);
+  if (!validateDomain(domain)) throw new Error('Invalid domain');
+  const connect = spawnSync('openssl', [
+    's_client', '-servername', domain, '-connect', `${domain}:443`
+  ], { input: '', timeout: 10000, encoding: 'utf-8' });
+
+  const x509 = spawnSync('openssl', [
+    'x509', '-noout', '-subject', '-issuer', '-dates', '-serial'
+  ], { input: connect.stdout || '', timeout: 5000, encoding: 'utf-8' });
+
+  const lines = (x509.stdout || '').split('\n').filter(Boolean);
   const cert = {};
   for (const line of lines) {
     const [key, ...val] = line.split('=');
@@ -571,12 +625,18 @@ const transports = {};
 app.get('/mcp/sse', async (req, res) => {
   const transport = new SSEServerTransport('/mcp/messages', res);
   transports[transport.sessionId] = transport;
-  
-  res.on('close', () => {
-    delete transports[transport.sessionId];
-  });
-  
-  await mcpServer.connect(transport);
+
+  const cleanup = () => { delete transports[transport.sessionId]; };
+  res.on('close', cleanup);
+  res.on('error', cleanup);
+
+  try {
+    await mcpServer.connect(transport);
+  } catch (err) {
+    console.error('[mcp]', err);
+    cleanup();
+    if (!res.headersSent) res.status(500).end();
+  }
 });
 
 app.post('/mcp/messages', async (req, res) => {
