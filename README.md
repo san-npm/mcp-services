@@ -112,7 +112,7 @@ curl -H "X-Api-Key: mcp_your_key" "https://mcp.skills.ws/api/whois?domain=exampl
 
 ### x402 Pay-per-call
 
-No account needed. Pay with USDC, USDT, or cUSD on Base or Celo. x402-compatible agents handle payment automatically.
+No account needed. Pay with USDC or USDT on Base or Celo. x402-compatible agents handle payment automatically.
 
 ```bash
 curl -H "X-Payment: <base64-encoded-json>" "https://mcp.skills.ws/api/screenshot?url=https://example.com"
