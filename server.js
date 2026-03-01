@@ -204,10 +204,12 @@ function parseCertOutput(raw) {
 
 // ─── Express API ───
 const app = express();
-app.use(express.json());
 
-// Stripe billing routes (before auth middleware — checkout/webhook need to be public)
+// Stripe billing routes FIRST (webhook needs raw body before express.json parses it)
 stripeRoutes(app);
+
+// JSON body parser (after webhook route)
+app.use(express.json());
 
 // Auth & billing middleware
 app.use(authMiddleware);
