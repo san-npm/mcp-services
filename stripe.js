@@ -134,7 +134,7 @@ export function stripeRoutes(app) {
 
   // Create checkout session (rate limited)
   app.post('/billing/checkout', async (req, res) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    const ip = req.ip;
     if (!checkCheckoutRate(ip)) {
       return res.status(429).json({ error: 'Too many checkout attempts. Try again later.' });
     }
