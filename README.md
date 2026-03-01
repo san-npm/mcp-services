@@ -104,7 +104,7 @@ Requires Chromium for screenshot/PDF.
 - viem for blockchain queries
 - whois-json for WHOIS
 - MCP SDK (SSE transport)
-- x402 payment protocol (Celo stablecoins)
+- x402 payment protocol (stablecoins on Base, Celo, Arbitrum, Polygon)
 - Hosted on Aleph Cloud (decentralized compute)
 
 ## License
