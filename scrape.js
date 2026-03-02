@@ -6,7 +6,7 @@ const MAX_CRAWL_PAGES = 20;
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024;
 
 // ─── DOM to Markdown converter (runs in browser context) ───
-const DOM_TO_MD_SCRIPT = `
+export const DOM_TO_MD_SCRIPT = `
 (function(maxLen) {
   const remove = document.querySelectorAll('script, style, nav, footer, aside, header, [role="banner"], [role="navigation"], .ad, .ads, .sidebar, .cookie-banner, .popup, #cookie-consent');
   remove.forEach(el => el.remove());

@@ -2,6 +2,7 @@
 // $9/mo subscription → unlimited API key
 
 import Stripe from 'stripe';
+import crypto from 'crypto';
 import { generateApiKey, revokeBySubscription, revokeByCustomer } from './auth.js';
 import express from 'express';
 
@@ -184,7 +185,7 @@ export function stripeRoutes(app) {
       }
 
       // Already provisioned — don't re-expose the key
-      if (session.metadata?.api_key) {
+      if (session.metadata?.key_provisioned === 'true') {
         usedSessions.add(session_id);
         return res.json({
           status: 'already_provisioned',
@@ -200,9 +201,10 @@ export function stripeRoutes(app) {
         stripeSessionId: session_id,
       });
 
-      // Store key in session metadata for idempotency (server-side only)
+      // Store a hash (not the raw key) in session metadata for idempotency
+      const keyHash = crypto.createHash('sha256').update(key).digest('hex').slice(0, 12);
       await getStripe().checkout.sessions.update(session_id, {
-        metadata: { ...session.metadata, api_key: key }
+        metadata: { ...session.metadata, key_provisioned: 'true', key_hash: keyHash }
       });
 
       // Mark session as used

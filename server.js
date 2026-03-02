@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { authMiddleware, adminRoutes } from './auth.js';
 import { stripeRoutes } from './stripe.js';
-import { scrapeUrl, crawlSite, extractData } from './scrape.js';
+import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js';
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
 import { memoryStore, memoryGet, memorySearch, memoryList, memoryDelete, resolveNamespace } from './memory.js';
 
@@ -238,7 +238,7 @@ app.get('/', (_, res) => {
 // Health
 app.get('/health', (_, res) => res.json({
   status: 'ok',
-  services: ['screenshot', 'pdf', 'whois', 'dns', 'ssl', 'blockchain', 'html2md', 'ocr', 'scrape', 'crawl', 'extract', 'serp', 'onpage-seo', 'keywords', 'memory']
+  services: ['scrape', 'crawl', 'extract', 'serp', 'onpage-seo', 'keywords', 'memory-store', 'memory-get', 'memory-search', 'memory-list', 'memory-delete', 'screenshot', 'pdf', 'html2md', 'ocr', 'whois', 'dns', 'ssl', 'balance', 'erc20', 'transaction']
 }));
 
 // Screenshot endpoint
@@ -735,7 +735,7 @@ app.delete('/api/memory', (req, res) => {
 // ─── MCP Server ───
 const mcpServer = new McpServer({
   name: 'mcp-services',
-  version: '1.0.0',
+  version: '2.0.0',
 });
 
 // Register MCP tools
@@ -862,15 +862,8 @@ mcpServer.tool('html2md', 'Fetch a URL and convert the page content to clean Mar
     const page = await browser.newPage();
     await setupSsrfProtection(page);
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    const content = await page.evaluate(() => {
-      document.querySelectorAll('script, style, nav, footer, aside, .ad, .ads, .sidebar').forEach(el => el.remove());
-      const article = document.querySelector('article, main, [role="main"]') || document.body;
-      return article.innerText;
-    });
-    const title = await page.title();
-    const text = content.replace(/\n{3,}/g, '\n\n').trim();
-    const truncated = text.length > 2097152 ? text.slice(0, 2097152) + '\n\n[Content truncated]' : text;
-    return { content: [{ type: 'text', text: `# ${title}\n\n${truncated}` }] };
+    const result = await page.evaluate(`${DOM_TO_MD_SCRIPT}(${MAX_CONTENT_LENGTH})`);
+    return { content: [{ type: 'text', text: `# ${result.title}\n\n${result.markdown}` }] };
   });
 });
 

@@ -1,6 +1,6 @@
 # MCP Services
 
-> Multi-tool hosted MCP server for AI agents by SKILLS.ws — 15 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, and blockchain data.
+> Multi-tool hosted MCP server for AI agents by SKILLS.ws — 21 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, and blockchain data.
 
 ## MCP Connection
 
@@ -16,7 +16,7 @@ SSE endpoint: https://mcp.skills.ws/mcp/sse
 }
 ```
 
-## Tools (15)
+## Tools (21)
 
 ### Web Scraping
 1. **scrape** — URL to clean Markdown with headings, lists, links, code blocks, tables. Returns title, markdown, wordCount, links[]. Parameters: url.

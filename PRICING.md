@@ -11,16 +11,17 @@
 | **Support** | Community | Email | — |
 | **Payment** | — | Credit card (Stripe) | USDC or USDT on Base/Celo |
 
-## Tools Included (All Plans)
+## Tools Included (All Plans — 21 tools)
 
-| Tool | Endpoint | Description |
+| Category | Tools | Endpoints |
 |---|---|---|
-| Screenshot | `/api/screenshot` | Capture any webpage as PNG/JPEG |
-| WHOIS | `/api/whois` | Domain registration data |
-| DNS | `/api/dns` | A, AAAA, MX, NS, TXT, CNAME, SOA records |
-| SSL | `/api/ssl` | Certificate analysis, chain, expiry |
-| OCR | `/api/ocr` | Extract text from images |
-| Blockchain | `/api/blockchain` | Balances, token prices, multi-chain |
+| Web Scraping | scrape, crawl, extract | `/api/scrape`, `/api/crawl`, `/api/extract` |
+| SEO Toolkit | serp, onpage_seo, keywords_suggest | `/api/serp`, `/api/onpage-seo`, `/api/keywords` |
+| Agent Memory | memory_store/get/search/list/delete | `/api/memory`, `/api/memory/search`, `/api/memory/list` |
+| Screenshot & PDF | screenshot, pdf | `/api/screenshot`, `/api/pdf` |
+| Content | html2md, ocr | `/api/html2md`, `/api/ocr` |
+| Domain Intel | whois, dns, ssl | `/api/whois`, `/api/dns`, `/api/ssl` |
+| Blockchain | balance, erc20_balance, transaction | `/api/chain/balance`, `/api/chain/erc20`, `/api/chain/tx` |
 
 ## How to Get Started
 

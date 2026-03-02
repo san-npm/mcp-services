@@ -4,6 +4,8 @@
 import crypto from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { dirname } from 'path';
+import { createPublicClient, http, formatUnits } from 'viem';
+import { base, celo } from 'viem/chains';
 
 // ─── Config ───
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
@@ -120,26 +122,97 @@ function resetIfNeeded() {
 }
 
 // ─── x402 payment verification ───
-const verifiedTxHashes = new Set();
+// Map of txHash -> timestamp for replay protection with TTL
+const verifiedTxHashes = new Map();
+const TX_HASH_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+const TX_HASH_MAX = 100000;
 
-function verifyX402(req) {
+// RPC clients for on-chain verification (Base and Celo only, per x402 spec)
+const x402Chains = {
+  base: createPublicClient({ chain: base, transport: http('https://base-rpc.publicnode.com') }),
+  celo: createPublicClient({ chain: celo, transport: http('https://forno.celo.org') }),
+};
+
+// Well-known stablecoin addresses on supported chains
+const STABLECOIN_ADDRESSES = {
+  base: {
+    usdc: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+    usdt: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+  },
+  celo: {
+    usdc: '0xcebA9300f2b948710d2653dD7B07f33A8B32118C',
+    usdt: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e',
+  },
+};
+
+function purgeExpiredTxHashes() {
+  const now = Date.now();
+  for (const [hash, ts] of verifiedTxHashes) {
+    if (now - ts > TX_HASH_TTL) verifiedTxHashes.delete(hash);
+    else break; // Map preserves insertion order; stop at first non-expired
+  }
+}
+
+async function verifyX402(req) {
   const paymentHeader = req.headers['x-payment'];
   if (!paymentHeader) return false;
 
   try {
     const payment = JSON.parse(Buffer.from(paymentHeader, 'base64').toString());
 
+    // Basic field validation
     if (payment.receiver?.toLowerCase() !== X402_RECEIVER.toLowerCase()) return false;
     if (parseFloat(payment.amount) < X402_PRICE_USD) return false;
     if (!payment.txHash || typeof payment.txHash !== 'string') return false;
     if (!/^0x[a-fA-F0-9]{64}$/.test(payment.txHash)) return false;
-    if (verifiedTxHashes.has(payment.txHash.toLowerCase())) return false;
-    
-    verifiedTxHashes.add(payment.txHash.toLowerCase());
 
-    // Cap replay set size (prevent memory leak)
-    if (verifiedTxHashes.size > 100000) {
-      const first = verifiedTxHashes.values().next().value;
+    const txHash = payment.txHash.toLowerCase();
+    const network = (payment.network || '').toLowerCase();
+
+    // Check supported network
+    const client = x402Chains[network];
+    if (!client) return false;
+
+    // Replay protection — purge expired, then check
+    purgeExpiredTxHashes();
+    if (verifiedTxHashes.has(txHash)) return false;
+
+    // On-chain verification — fetch the transaction receipt
+    const receipt = await client.getTransactionReceipt({ hash: txHash });
+    if (!receipt || receipt.status !== 'success') return false;
+
+    // Verify the transaction sent value to our receiver address
+    // Check for ERC20 Transfer events to receiver with sufficient amount
+    const stablecoins = STABLECOIN_ADDRESSES[network] || {};
+    const validTokens = Object.values(stablecoins).map(a => a.toLowerCase());
+    const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'; // Transfer(address,address,uint256)
+
+    let verified = false;
+    for (const log of receipt.logs) {
+      if (log.topics[0] !== transferTopic) continue;
+      if (!validTokens.includes(log.address.toLowerCase())) continue;
+
+      // Transfer event: topics[2] = to address (padded to 32 bytes)
+      const toAddr = '0x' + (log.topics[2] || '').slice(26).toLowerCase();
+      if (toAddr !== X402_RECEIVER.toLowerCase()) continue;
+
+      // Decode amount (uint256) — stablecoins are 6 decimals
+      const amount = BigInt(log.data);
+      const amountUsd = parseFloat(formatUnits(amount, 6));
+      if (amountUsd >= X402_PRICE_USD) {
+        verified = true;
+        break;
+      }
+    }
+
+    if (!verified) return false;
+
+    // Mark as used
+    verifiedTxHashes.set(txHash, Date.now());
+
+    // Cap size
+    if (verifiedTxHashes.size > TX_HASH_MAX) {
+      const first = verifiedTxHashes.keys().next().value;
       verifiedTxHashes.delete(first);
     }
 
@@ -157,7 +230,7 @@ export function getRequestLog() {
 }
 
 // ─── Middleware ───
-export function authMiddleware(req, res, next) {
+export async function authMiddleware(req, res, next) {
   // Skip health
   if (req.path === '/health') return next();
   // Skip MCP SSE
@@ -169,7 +242,7 @@ export function authMiddleware(req, res, next) {
 
   // 1. Check x402 payment
   if (req.headers['x-payment']) {
-    if (verifyX402(req)) {
+    if (await verifyX402(req)) {
       req.authTier = 'x402';
       requestLog.x402++;
       return next();

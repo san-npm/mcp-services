@@ -3,6 +3,7 @@
 // SQLite-based persistent storage, namespace-scoped per API key
 
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 
@@ -77,7 +78,7 @@ export function resolveNamespace(req, namespace) {
   if (tier === 'apikey') {
     const apiKey = req.headers['x-api-key'] || req.query.apikey || 'unknown';
     // Hash the key so we don't store raw keys in DB
-    const hash = Buffer.from(apiKey).toString('base64url').slice(0, 16);
+    const hash = crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
     return `key:${hash}:${namespace}`;
   }
   if (tier === 'x402') {

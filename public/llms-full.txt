@@ -1,6 +1,6 @@
 # MCP Services — Complete Documentation
 
-> Multi-tool MCP server + REST API for AI agents by SKILLS.ws
+> Multi-tool MCP server + REST API for AI agents by SKILLS.ws — 21 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, and blockchain data.
 
 Website: https://mcp.skills.ws
 GitHub: https://github.com/san-npm/mcp-services
@@ -10,7 +10,7 @@ License: MIT | Author: Commit Media SARL
 
 ## What is MCP Services?
 
-MCP Services is a Model Context Protocol (MCP) server that exposes 10 tools to AI agents via Server-Sent Events (SSE) transport. It also provides the same tools as a standard REST API. The server handles screenshots, PDF generation, domain intelligence (WHOIS, DNS, SSL), content extraction (HTML-to-Markdown, OCR), and multi-chain EVM blockchain queries.
+MCP Services is a Model Context Protocol (MCP) server that exposes 21 tools to AI agents via Server-Sent Events (SSE) transport. It also provides the same tools as a standard REST API. The server handles web scraping, site crawling, structured data extraction, SEO analysis (SERP, on-page, keywords), persistent agent memory, screenshots, PDF generation, domain intelligence (WHOIS, DNS, SSL), content extraction (HTML-to-Markdown, OCR), and multi-chain EVM blockchain queries.
 
 ## MCP Connection
 
@@ -33,7 +33,106 @@ Message endpoint: `POST https://mcp.skills.ws/mcp/messages?sessionId=<id>`
 
 ## Tool Reference
 
-### 1. screenshot
+### 1. scrape
+Scrape a URL and convert to clean Markdown. Returns title, markdown content, word count, and links found.
+
+Parameters:
+- `url` (string, required) — URL to scrape
+
+REST: `GET /api/scrape?url=https://example.com`
+
+### 2. crawl
+Crawl a website starting from a URL. Follows internal links up to specified depth. Returns markdown for each page.
+
+Parameters:
+- `url` (string, required) — Starting URL to crawl
+- `depth` (number, default: 1) — Max crawl depth (1-3)
+- `maxPages` (number, default: 10) — Max pages to crawl (1-20)
+
+REST: `GET /api/crawl?url=https://example.com&depth=2&maxPages=10`
+
+### 3. extract
+Extract structured data from a URL: JSON-LD, Open Graph, meta tags, headings, links, images, tables.
+
+Parameters:
+- `url` (string, required) — URL to extract data from
+
+REST: `GET /api/extract?url=https://example.com`
+
+### 4. serp
+Scrape Google search results for a keyword. Returns organic results, People Also Ask, featured snippets, and related searches.
+
+Parameters:
+- `keyword` (string, required) — Search keyword
+
+REST: `GET /api/serp?keyword=best+mcp+servers`
+
+### 5. onpage_seo
+Full on-page SEO analysis of a URL. Scores title, meta description, headings, images, links, schema markup, Open Graph, and more. Returns a score from 0-100 with specific issues.
+
+Parameters:
+- `url` (string, required) — URL to analyze
+
+REST: `GET /api/onpage-seo?url=https://example.com`
+
+### 6. keywords_suggest
+Get keyword suggestions using Google Autocomplete. Expands seed keyword with A-Z suffixes. Returns up to 100 related keyword ideas.
+
+Parameters:
+- `keyword` (string, required) — Seed keyword
+
+REST: `GET /api/keywords?keyword=mcp+server`
+
+### 7. memory_store
+Store a memory in persistent storage. Memories are scoped by namespace. Upserts on key conflict.
+
+Parameters:
+- `namespace` (string, required) — Memory namespace (e.g., "my-agent", "project-x")
+- `key` (string, required) — Memory key (max 256 chars)
+- `value` (string, required) — Memory value (max 100KB)
+- `tags` (string, optional) — Comma-separated tags
+
+REST: `POST /api/memory` with JSON body `{ "namespace": "...", "key": "...", "value": "...", "tags": ["..."] }`
+
+### 8. memory_get
+Retrieve a memory by namespace and key.
+
+Parameters:
+- `namespace` (string, required) — Memory namespace
+- `key` (string, required) — Memory key
+
+REST: `GET /api/memory?namespace=my-agent&key=my-key`
+
+### 9. memory_search
+Search memories by text query within a namespace. Uses full-text search (FTS5).
+
+Parameters:
+- `namespace` (string, required) — Memory namespace
+- `query` (string, required) — Search query
+- `limit` (number, default: 20) — Max results (1-50)
+
+REST: `GET /api/memory/search?namespace=my-agent&query=search+term`
+
+### 10. memory_list
+List all memories in a namespace with pagination.
+
+Parameters:
+- `namespace` (string, required) — Memory namespace
+- `offset` (number, default: 0) — Pagination offset
+- `limit` (number, default: 20) — Max items (1-100)
+
+REST: `GET /api/memory/list?namespace=my-agent&offset=0&limit=20`
+
+### 11. memory_delete
+Delete a memory by namespace and key.
+
+Parameters:
+- `namespace` (string, required) — Memory namespace
+- `key` (string, required) — Memory key
+
+REST: `DELETE /api/memory?namespace=my-agent&key=my-key`
+
+### 12. screenshot
 Take a screenshot of any URL. Returns base64 PNG/JPEG image.
 
 Parameters:
@@ -45,7 +144,7 @@ Parameters:
 
 REST: `GET /api/screenshot?url=https://example.com&format=png&width=1280&height=800&fullPage=false`
 
-### 2. pdf
+### 13. pdf
 Generate a PDF of any URL. Returns PDF binary (REST) or base64 data URI (MCP).
 
 Parameters:
@@ -53,15 +152,15 @@ Parameters:
 
 REST: `GET /api/pdf?url=https://example.com`
 
-### 3. html2md
-Fetch a URL and convert the page content to clean Markdown. Removes navigation, ads, and scripts. Extracts the main article content.
+### 14. html2md
+Fetch a URL and convert the page content to clean Markdown. Removes navigation, ads, and scripts. Extracts the main article content with proper heading, link, list, and code block formatting.
 
 Parameters:
 - `url` (string, required) — URL to fetch and convert
 
 REST: `GET /api/html2md?url=https://example.com`
 
-### 4. ocr
+### 15. ocr
 Extract text from an image URL using OCR (Tesseract.js). Supports common image formats.
 
 Parameters:
@@ -69,7 +168,7 @@ Parameters:
 
 REST: `GET /api/ocr?url=https://example.com/image.png`
 
-### 5. whois
+### 16. whois
 Look up WHOIS information for a domain. Returns registrar, creation date, expiry, name servers, and more.
 
 Parameters:
@@ -77,7 +176,7 @@ Parameters:
 
 REST: `GET /api/whois?domain=example.com`
 
-### 6. dns
+### 17. dns
 Look up DNS records for a domain. Supports individual record types or ALL.
 
 Parameters:
@@ -86,7 +185,7 @@ Parameters:
 
 REST: `GET /api/dns?domain=example.com&type=ALL`
 
-### 7. ssl
+### 18. ssl
 Check SSL certificate details for a domain. Returns issuer, validity dates, expiry countdown, and fingerprint.
 
 Parameters:
@@ -94,7 +193,7 @@ Parameters:
 
 REST: `GET /api/ssl?domain=example.com`
 
-### 8. balance
+### 19. balance
 Get native token balance for an address on any of 6 supported EVM chains.
 
 Parameters:
@@ -103,7 +202,7 @@ Parameters:
 
 REST: `GET /api/chain/balance?address=0x...&chain=ethereum`
 
-### 9. erc20_balance
+### 20. erc20_balance
 Get ERC20 token balance for an address. Returns balance, symbol, and decimals.
 
 Parameters:
@@ -113,7 +212,7 @@ Parameters:
 
 REST: `GET /api/chain/erc20?address=0x...&token=0x...&chain=ethereum`
 
-### 10. transaction
+### 21. transaction
 Get transaction details by hash. Returns from, to, value, gas used, status, and block number.
 
 Parameters:
@@ -157,7 +256,7 @@ X-Api-Key: mcp_your_key_here
 Or as query parameter: `?apikey=mcp_your_key_here`
 
 ### x402 Pay-per-call ($0.005/call)
-No account needed. Pay with USDC, USDT, or cUSD on Celo network. x402-compatible agents handle payment automatically.
+No account needed. Pay with USDC or USDT on Base or Celo. x402-compatible agents handle payment automatically. Transactions are verified on-chain.
 
 Send base64-encoded payment proof in header:
 ```
@@ -170,7 +269,7 @@ Payment JSON format: `{ "network": "celo", "token": "USDC", "txHash": "0x...", "
 
 ## Health Check
 
-`GET /health` — Returns `{ "status": "ok", "services": ["screenshot", "whois", "blockchain"] }`
+`GET /health` — Returns `{ "status": "ok", "services": [...] }`
 
 ---
 
@@ -181,6 +280,8 @@ Payment JSON format: `{ "network": "celo", "token": "USDC", "txHash": "0x...", "
 - Rate limiting: IP-based daily limits on free tier
 - Resource limits: max 3 concurrent browsers, 50 SSE sessions, 50MB PDF cap
 - Async SSL: non-blocking openssl via child_process.spawn
+- x402 on-chain verification: transaction receipts verified on Base/Celo RPCs
+- Memory namespace isolation: API key hashed with SHA-256 for DB scoping
 
 ---
 
@@ -193,7 +294,7 @@ npm install
 node server.js  # runs on port 3100
 ```
 
-Requires: Node.js 22+, Chromium (for screenshot/PDF/OCR/html2md)
+Requires: Node.js 22+, Chromium (for screenshot/PDF/OCR/html2md/scrape/crawl)
 
 Environment variables:
 - `PORT` — Server port (default: 3100)
@@ -203,5 +304,10 @@ Environment variables:
 - `FREE_DAILY_LIMIT` — Free tier daily call limit (default: 10)
 - `API_KEYS` — Comma-separated valid API keys
 - `ADMIN_SECRET` — Secret for admin endpoints
+- `KEYS_FILE` — Persistent API key storage path (default: ./data/api-keys.json)
+- `MEMORY_DB_PATH` — SQLite database path for agent memory (default: ./data/memory.db)
+- `STRIPE_SK` — Stripe secret key
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret
+- `DOMAIN` — Base URL for Stripe checkout redirects (default: https://mcp.skills.ws)
 - `X402_PRICE_USD` — x402 price per call (default: 0.005)
 - `X402_RECEIVER` — x402 payment receiver address

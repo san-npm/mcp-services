@@ -1,6 +1,6 @@
 # MCP Services
 
-Hosted MCP server with **15 tools** for AI agents: web scraping, SEO analysis, persistent agent memory, screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.
+Multi-tool MCP server + REST API for AI agents. 21 tools across web scraping, SEO analysis, agent memory, screenshot/PDF generation, domain intelligence, content extraction, and multi-chain EVM blockchain queries.
 
 **Live:** [mcp.skills.ws](https://mcp.skills.ws) | **Docs:** [llms.txt](https://mcp.skills.ws/llms.txt) | **npm:** `npm install -g mcp-services`
 
@@ -32,7 +32,141 @@ mcp-services
 # → running on http://localhost:3100
 ```
 
-Or clone and run:
+No auth needed for the free tier (10 calls/day per IP).
+
+---
+
+## Tools (21)
+
+### Web Scraping
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `scrape` | `GET /api/scrape` | URL to clean Markdown with headings, lists, links, code blocks, tables |
+| `crawl` | `GET /api/crawl` | Crawl a site from starting URL, follow internal links (depth 1-3, max 20 pages) |
+| `extract` | `GET /api/extract` | Extract structured data: JSON-LD, Open Graph, meta tags, headings, links, images, tables |
+
+### SEO Toolkit
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `serp` | `GET /api/serp` | Google SERP scraping — top 20 results, People Also Ask, featured snippets, related searches |
+| `onpage_seo` | `GET /api/onpage-seo` | Full on-page SEO audit with score (0-100) — title, meta, headings, images, schema, Open Graph |
+| `keywords_suggest` | `GET /api/keywords` | Google Autocomplete keyword suggestions with A-Z expansion (100+ ideas) |
+
+### Agent Memory
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `memory_store` | `POST /api/memory` | Store a memory (key-value, namespace-scoped, with tags). Upserts on key conflict |
+| `memory_get` | `GET /api/memory` | Retrieve a memory by namespace + key |
+| `memory_search` | `GET /api/memory/search` | Full-text search across memories in a namespace |
+| `memory_list` | `GET /api/memory/list` | List all memories in a namespace with pagination |
+| `memory_delete` | `DELETE /api/memory` | Delete a memory by namespace + key |
+
+### Screenshot & PDF
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `screenshot` | `GET /api/screenshot` | PNG/JPEG screenshot of any URL |
+| `pdf` | `GET /api/pdf` | Generate PDF of any URL |
+
+**Screenshot parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | *required* | URL to screenshot |
+| `format` | string | `png` | `png` or `jpeg` |
+| `width` | number | `1280` | Viewport width (100–3840) |
+| `height` | number | `800` | Viewport height (100–2160) |
+| `fullPage` | boolean | `false` | Capture full scrollable page |
+
+### Content Extraction
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `html2md` | `GET /api/html2md` | Fetch URL, strip nav/ads/scripts, convert to Markdown |
+| `ocr` | `GET /api/ocr` | Extract text from image URL via Tesseract.js OCR |
+
+### Domain Intelligence
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `whois` | `GET /api/whois` | WHOIS registrar, creation date, expiry, name servers |
+| `dns` | `GET /api/dns` | DNS records — `A`, `AAAA`, `MX`, `NS`, `TXT`, `CNAME`, `SOA`, or `ALL` |
+| `ssl` | `GET /api/ssl` | SSL certificate issuer, validity dates, expiry countdown, fingerprint |
+
+### Blockchain (6 EVM chains)
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `balance` | `GET /api/chain/balance` | Native token balance for any address |
+| `erc20_balance` | `GET /api/chain/erc20` | ERC20 token balance, symbol, decimals |
+| `transaction` | `GET /api/chain/tx` | Transaction details — from, to, value, gas, status |
+
+**Supported chains:**
+
+| Chain | Native Token | Chain ID |
+|-------|-------------|----------|
+| Ethereum | ETH | 1 |
+| Base | ETH | 8453 |
+| Arbitrum | ETH | 42161 |
+| Optimism | ETH | 10 |
+| Polygon | MATIC | 137 |
+| Celo | CELO | 42220 |
+
+---
+
+## Authentication
+
+Three tiers — use whichever fits:
+
+| Tier | How | Limit | Cost |
+|------|-----|-------|------|
+| **Free** | No auth needed | 10 calls/day per IP | $0 |
+| **API Key** | `X-Api-Key` header or `?apikey=` query param | Unlimited | $9/mo |
+| **x402** | `X-Payment` header | Pay per call | $0.005/call |
+
+### API Key
+
+Subscribe via Stripe to get an unlimited API key:
+
+```bash
+# 1. Create checkout session
+curl -X POST https://mcp.skills.ws/billing/checkout
+# Returns: { "url": "https://checkout.stripe.com/..." }
+
+# 2. Complete payment at the Stripe URL
+# 3. You'll receive your API key on the success page (shown once only — save it)
+
+# 4. Use it
+curl -H "X-Api-Key: mcp_your_key" "https://mcp.skills.ws/api/whois?domain=example.com"
+```
+
+### x402 Pay-per-call
+
+No account needed. Pay with USDC or USDT on Base or Celo. x402-compatible agents handle payment automatically.
+
+```bash
+curl -H "X-Payment: <base64-encoded-json>" "https://mcp.skills.ws/api/screenshot?url=https://example.com"
+```
+
+Payment JSON format:
+```json
+{
+  "network": "celo",
+  "token": "USDC",
+  "txHash": "0x...",
+  "amount": "0.005",
+  "receiver": "0x..."
+}
+```
+
+When the free limit is exceeded, the API returns `429` with upgrade options. Invalid x402 payment returns `402` with pricing info.
+
+---
+
+## Self-Hosted Setup
+
+### Requirements
+
+- Node.js 22+
+- Chromium (for screenshot, PDF, OCR, html2md)
+
+### Install
 
 ```bash
 git clone https://github.com/san-npm/mcp-services.git
@@ -173,6 +307,46 @@ curl "https://mcp.skills.ws/api/chain/erc20?address=0x...&token=0x...&chain=celo
 - Resource limits: max concurrent browsers, SSE sessions, PDF size cap
 
 ---
+
+## Architecture
+
+```
+                  ┌──────────────────────────────────┐
+                  │          Express Server           │
+                  │                                   │
+                  │  ┌─────────┐    ┌──────────────┐ │
+  MCP SSE ───────►│  │ MCP SDK │    │  Auth Layer   │ │
+                  │  │  (SSE)  │    │ free/key/x402 │ │
+                  │  └─────────┘    └──────────────┘ │
+                  │                                   │
+  REST API ──────►│  ┌──────────────────────────────┐ │
+                  │  │         21 Tool Handlers      │ │
+                  │  │ screenshot │ pdf │ html2md    │ │
+                  │  │ ocr │ whois │ dns │ ssl       │ │
+                  │  │ balance │ erc20 │ transaction │ │
+                  │  └──────────────────────────────┘ │
+                  │        │              │            │
+                  │  ┌─────┴────┐  ┌─────┴─────────┐ │
+                  │  │ Puppeteer│  │ viem (6 RPCs)  │ │
+                  │  │ Chromium │  │ whois-json     │ │
+                  │  │          │  │ openssl (SSL)  │ │
+                  │  └──────────┘  └────────────────┘ │
+                  │                                   │
+  Stripe ────────►│  ┌──────────────────────────────┐ │
+  Webhooks        │  │   Billing (stripe.js)         │ │
+                  │  │   checkout → key provisioning │ │
+                  │  └──────────────────────────────┘ │
+                  └──────────────────────────────────┘
+```
+
+## Stack
+
+- **Runtime:** Node.js 22 + Express
+- **Browser:** Puppeteer (Chromium) — screenshots, PDF, OCR, html2md
+- **Blockchain:** viem — 6 EVM chains via public RPCs
+- **Payments:** Stripe (subscriptions), x402 protocol (stablecoins on Base/Celo)
+- **MCP:** `@modelcontextprotocol/sdk` with SSE transport
+- **Hosting:** [Aleph Cloud](https://aleph.im) (decentralized compute)
 
 ## License
 
