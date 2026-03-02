@@ -1,10 +1,16 @@
 {
   "name": "mcp-services",
-  "version": "1.0.0",
-  "description": "Multi-tool MCP server + REST API for AI agents. Web scraping, SEO toolkit, agent memory, screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.",
+  "version": "2.0.0",
+  "description": "Hosted MCP server with 15 tools for AI agents: web scraping, SEO analysis, persistent memory, screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.",
   "type": "module",
+  "bin": {
+    "mcp-services": "./server.js"
+  },
   "scripts": {
     "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
@@ -23,7 +29,13 @@
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "ai-agents",
+    "web-scraping",
+    "seo",
+    "serp",
+    "keyword-research",
+    "agent-memory",
     "screenshot",
     "pdf",
     "whois",
@@ -32,13 +44,15 @@
     "blockchain",
     "ocr",
     "html2md",
+    "x402",
+    "micropayments",
     "ethereum",
     "celo",
-    "base",
-    "arbitrum",
-    "polygon",
-    "optimism"
+    "base"
   ],
-  "homepage": "https://github.com/san-npm/mcp-services",
-  "author": "Commit Media SARL"
+  "homepage": "https://mcp.skills.ws",
+  "author": "Commit Media SARL",
+  "bugs": {
+    "url": "https://github.com/san-npm/mcp-services/issues"
+  }
 }
