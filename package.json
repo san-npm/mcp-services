@@ -1,13 +1,14 @@
 {
   "name": "mcp-services",
   "version": "1.0.0",
-  "description": "Multi-tool MCP server + REST API for AI agents. Screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.",
+  "description": "Multi-tool MCP server + REST API for AI agents. Web scraping, SEO toolkit, agent memory, screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^12.6.2",
     "dotenv": "^17.3.1",
     "express": "^4.21.0",
     "puppeteer-core": "^24.0.0",

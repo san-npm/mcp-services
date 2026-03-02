@@ -12,6 +12,9 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { authMiddleware, adminRoutes } from './auth.js';
 import { stripeRoutes } from './stripe.js';
+import { scrapeUrl, crawlSite, extractData } from './scrape.js';
+import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
+import { memoryStore, memoryGet, memorySearch, memoryList, memoryDelete, resolveNamespace } from './memory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -232,7 +235,10 @@ app.get('/', (_, res) => {
 });
 
 // Health
-app.get('/health', (_, res) => res.json({ status: 'ok', services: ['screenshot', 'whois', 'blockchain'] }));
+app.get('/health', (_, res) => res.json({
+  status: 'ok',
+  services: ['screenshot', 'pdf', 'whois', 'dns', 'ssl', 'blockchain', 'html2md', 'ocr', 'scrape', 'crawl', 'extract', 'serp', 'onpage-seo', 'keywords', 'memory']
+}));
 
 // Screenshot endpoint
 app.get('/api/screenshot', async (req, res) => {
@@ -555,6 +561,176 @@ app.get('/api/ssl', async (req, res) => {
   }
 });
 
+// ─── Web Scraper endpoints ───
+
+app.get('/api/scrape', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
+  if (!await validateUrlAsync(url)) return res.status(400).json({ error: 'URL resolves to blocked address' });
+
+  try {
+    const result = await withBrowser(async (browser) => {
+      return scrapeUrl(browser, url, setupSsrfProtection);
+    }, res);
+    if (result) res.json(result);
+  } catch (err) {
+    console.error('[scrape]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Scrape failed' });
+  }
+});
+
+app.get('/api/crawl', async (req, res) => {
+  const { url, depth = 1, maxPages = 10 } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
+  if (!await validateUrlAsync(url)) return res.status(400).json({ error: 'URL resolves to blocked address' });
+
+  try {
+    const result = await withBrowser(async (browser) => {
+      return crawlSite(browser, url, parseInt(depth), parseInt(maxPages), setupSsrfProtection, validateUrl, validateUrlAsync);
+    }, res);
+    if (result) res.json(result);
+  } catch (err) {
+    console.error('[crawl]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Crawl failed' });
+  }
+});
+
+app.get('/api/extract', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
+  if (!await validateUrlAsync(url)) return res.status(400).json({ error: 'URL resolves to blocked address' });
+
+  try {
+    const result = await withBrowser(async (browser) => {
+      return extractData(browser, url, setupSsrfProtection);
+    }, res);
+    if (result) res.json(result);
+  } catch (err) {
+    console.error('[extract]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Extraction failed' });
+  }
+});
+
+// ─── SEO Toolkit endpoints ───
+
+app.get('/api/serp', async (req, res) => {
+  const { keyword } = req.query;
+  if (!keyword) return res.status(400).json({ error: 'keyword parameter required' });
+  if (keyword.length > 200) return res.status(400).json({ error: 'keyword too long' });
+
+  try {
+    const result = await withBrowser(async (browser) => {
+      return serpScrape(browser, keyword, setupSsrfProtection);
+    }, res);
+    if (result) res.json(result);
+  } catch (err) {
+    console.error('[serp]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'SERP scrape failed' });
+  }
+});
+
+app.get('/api/onpage-seo', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
+  if (!await validateUrlAsync(url)) return res.status(400).json({ error: 'URL resolves to blocked address' });
+
+  try {
+    const result = await withBrowser(async (browser) => {
+      return onpageSeo(browser, url, setupSsrfProtection);
+    }, res);
+    if (result) res.json(result);
+  } catch (err) {
+    console.error('[onpage-seo]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'On-page SEO analysis failed' });
+  }
+});
+
+app.get('/api/keywords', async (req, res) => {
+  const { keyword } = req.query;
+  if (!keyword) return res.status(400).json({ error: 'keyword parameter required' });
+  if (keyword.length > 200) return res.status(400).json({ error: 'keyword too long' });
+
+  try {
+    const result = await keywordsSuggest(keyword);
+    res.json(result);
+  } catch (err) {
+    console.error('[keywords]', err);
+    res.status(500).json({ error: 'Keyword suggestions failed' });
+  }
+});
+
+// ─── Agent Memory endpoints ───
+
+app.post('/api/memory', (req, res) => {
+  try {
+    const { namespace, key, value, tags } = req.body || {};
+    if (!namespace || !key || !value) return res.status(400).json({ error: 'namespace, key, and value are required' });
+    const ns = resolveNamespace(req, namespace);
+    const result = memoryStore(ns, key, value, tags);
+    res.json(result);
+  } catch (err) {
+    console.error('[memory/store]', err);
+    res.status(500).json({ error: err.message || 'Memory store failed' });
+  }
+});
+
+app.get('/api/memory', (req, res) => {
+  try {
+    const { namespace, key } = req.query;
+    if (!namespace || !key) return res.status(400).json({ error: 'namespace and key are required' });
+    const ns = resolveNamespace(req, namespace);
+    const result = memoryGet(ns, key);
+    if (!result) return res.status(404).json({ error: 'Memory not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('[memory/get]', err);
+    res.status(500).json({ error: err.message || 'Memory get failed' });
+  }
+});
+
+app.get('/api/memory/search', (req, res) => {
+  try {
+    const { namespace, query, limit } = req.query;
+    if (!namespace || !query) return res.status(400).json({ error: 'namespace and query are required' });
+    const ns = resolveNamespace(req, namespace);
+    const result = memorySearch(ns, query, parseInt(limit) || 20);
+    res.json(result);
+  } catch (err) {
+    console.error('[memory/search]', err);
+    res.status(500).json({ error: err.message || 'Memory search failed' });
+  }
+});
+
+app.get('/api/memory/list', (req, res) => {
+  try {
+    const { namespace, offset, limit } = req.query;
+    if (!namespace) return res.status(400).json({ error: 'namespace is required' });
+    const ns = resolveNamespace(req, namespace);
+    const result = memoryList(ns, parseInt(offset) || 0, parseInt(limit) || 20);
+    res.json(result);
+  } catch (err) {
+    console.error('[memory/list]', err);
+    res.status(500).json({ error: err.message || 'Memory list failed' });
+  }
+});
+
+app.delete('/api/memory', (req, res) => {
+  try {
+    const { namespace, key } = req.query;
+    if (!namespace || !key) return res.status(400).json({ error: 'namespace and key are required' });
+    const ns = resolveNamespace(req, namespace);
+    const result = memoryDelete(ns, key);
+    res.json(result);
+  } catch (err) {
+    console.error('[memory/delete]', err);
+    res.status(500).json({ error: err.message || 'Memory delete failed' });
+  }
+});
+
 // ─── MCP Server ───
 const mcpServer = new McpServer({
   name: 'mcp-services',
@@ -731,6 +907,123 @@ mcpServer.tool('ssl', 'Check SSL certificate details for a domain. Returns issue
   );
   const cert = parseCertOutput(x509.stdout || '');
   return { content: [{ type: 'text', text: JSON.stringify({ domain, certificate: cert }, null, 2) }] };
+});
+
+// ─── Web Scraper MCP tools ───
+
+mcpServer.tool('scrape', 'Scrape a URL and convert to clean Markdown. Returns title, markdown content, word count, and links found.', {
+  url: { type: 'string', description: 'URL to scrape' },
+}, async ({ url }) => {
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  if (!await validateUrlAsync(url)) throw new Error('URL resolves to blocked address');
+  return withBrowser(async (browser) => {
+    const result = await scrapeUrl(browser, url, setupSsrfProtection);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  });
+});
+
+mcpServer.tool('crawl', 'Crawl a website starting from a URL. Follows internal links up to specified depth. Returns markdown for each page.', {
+  url: { type: 'string', description: 'Starting URL to crawl' },
+  depth: { type: 'number', description: 'Max crawl depth (1-3)', default: 1 },
+  maxPages: { type: 'number', description: 'Max pages to crawl (1-20)', default: 10 },
+}, async ({ url, depth = 1, maxPages = 10 }) => {
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  if (!await validateUrlAsync(url)) throw new Error('URL resolves to blocked address');
+  return withBrowser(async (browser) => {
+    const result = await crawlSite(browser, url, depth, maxPages, setupSsrfProtection, validateUrl, validateUrlAsync);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  });
+});
+
+mcpServer.tool('extract', 'Extract structured data from a URL: JSON-LD, Open Graph, meta tags, headings, links, images, tables.', {
+  url: { type: 'string', description: 'URL to extract data from' },
+}, async ({ url }) => {
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  if (!await validateUrlAsync(url)) throw new Error('URL resolves to blocked address');
+  return withBrowser(async (browser) => {
+    const result = await extractData(browser, url, setupSsrfProtection);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  });
+});
+
+// ─── SEO Toolkit MCP tools ───
+
+mcpServer.tool('serp', 'Scrape Google search results for a keyword. Returns organic results, People Also Ask, featured snippets, and related searches.', {
+  keyword: { type: 'string', description: 'Search keyword' },
+}, async ({ keyword }) => {
+  if (!keyword || keyword.length > 200) throw new Error('Invalid keyword');
+  return withBrowser(async (browser) => {
+    const result = await serpScrape(browser, keyword, setupSsrfProtection);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  });
+});
+
+mcpServer.tool('onpage_seo', 'Full on-page SEO analysis of a URL. Scores title, meta description, headings, images, links, schema markup, Open Graph, and more.', {
+  url: { type: 'string', description: 'URL to analyze' },
+}, async ({ url }) => {
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  if (!await validateUrlAsync(url)) throw new Error('URL resolves to blocked address');
+  return withBrowser(async (browser) => {
+    const result = await onpageSeo(browser, url, setupSsrfProtection);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  });
+});
+
+mcpServer.tool('keywords_suggest', 'Get keyword suggestions using Google Autocomplete. Returns up to 100 related keyword ideas.', {
+  keyword: { type: 'string', description: 'Seed keyword' },
+}, async ({ keyword }) => {
+  if (!keyword || keyword.length > 200) throw new Error('Invalid keyword');
+  const result = await keywordsSuggest(keyword);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+// ─── Agent Memory MCP tools ───
+
+mcpServer.tool('memory_store', 'Store a memory in persistent storage. Memories are scoped by namespace. Upserts on key conflict.', {
+  namespace: { type: 'string', description: 'Memory namespace (e.g., "my-agent", "project-x")' },
+  key: { type: 'string', description: 'Memory key (max 256 chars)' },
+  value: { type: 'string', description: 'Memory value (max 100KB)' },
+  tags: { type: 'string', description: 'Comma-separated tags (optional)', default: '' },
+}, async ({ namespace, key, value, tags = '' }) => {
+  const tagArr = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+  // For MCP, namespace is used directly (no req object for auth scoping)
+  const result = memoryStore(`mcp:${namespace}`, key, value, tagArr);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('memory_get', 'Retrieve a memory by namespace and key.', {
+  namespace: { type: 'string', description: 'Memory namespace' },
+  key: { type: 'string', description: 'Memory key' },
+}, async ({ namespace, key }) => {
+  const result = memoryGet(`mcp:${namespace}`, key);
+  if (!result) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Memory not found' }) }] };
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('memory_search', 'Search memories by text query within a namespace. Uses full-text search.', {
+  namespace: { type: 'string', description: 'Memory namespace' },
+  query: { type: 'string', description: 'Search query' },
+  limit: { type: 'number', description: 'Max results (1-50)', default: 20 },
+}, async ({ namespace, query, limit = 20 }) => {
+  const result = memorySearch(`mcp:${namespace}`, query, limit);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('memory_list', 'List all memories in a namespace with pagination.', {
+  namespace: { type: 'string', description: 'Memory namespace' },
+  offset: { type: 'number', description: 'Pagination offset', default: 0 },
+  limit: { type: 'number', description: 'Max items (1-100)', default: 20 },
+}, async ({ namespace, offset = 0, limit = 20 }) => {
+  const result = memoryList(`mcp:${namespace}`, offset, limit);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('memory_delete', 'Delete a memory by namespace and key.', {
+  namespace: { type: 'string', description: 'Memory namespace' },
+  key: { type: 'string', description: 'Memory key' },
+}, async ({ namespace, key }) => {
+  const result = memoryDelete(`mcp:${namespace}`, key);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 
 // ─── SSE Transport for MCP ───
