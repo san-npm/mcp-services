@@ -1,6 +1,6 @@
 {
   "name": "mcp-services",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Multi-tool MCP server + REST API for AI agents. 21 tools: web scraping, SEO toolkit, agent memory, screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, and multi-chain blockchain data.",
   "type": "module",
   "bin": {
