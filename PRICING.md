@@ -11,14 +11,14 @@
 | **Support** | Community | Email | — |
 | **Payment** | — | Credit card (Stripe) | USDC or USDT on Base/Celo |
 
-## Tools Included (All Plans -- 28 tools)
+## Tools Included (All Plans -- 29 tools)
 
 | Category | Tools | Endpoints |
 |---|---|---|
 | Web Scraping | scrape, crawl, extract | `/api/scrape`, `/api/crawl`, `/api/extract` |
 | SEO Toolkit | serp, onpage_seo, keywords_suggest | `/api/serp`, `/api/onpage-seo`, `/api/keywords` |
 | Agent Memory | memory_store/get/search/list/delete | `/api/memory`, `/api/memory/search`, `/api/memory/list` |
-| Screenshot & PDF | screenshot, pdf | `/api/screenshot`, `/api/pdf` |
+| Screenshot & PDF | screenshot, pdf, pdf2docx | `/api/screenshot`, `/api/pdf`, `/api/pdf2docx` |
 | Content | html2md, ocr | `/api/html2md`, `/api/ocr` |
 | Domain Intel | whois, dns, ssl | `/api/whois`, `/api/dns`, `/api/ssl` |
 | Blockchain | balance, erc20_balance, transaction | `/api/chain/balance`, `/api/chain/erc20`, `/api/chain/tx` |

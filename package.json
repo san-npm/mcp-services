@@ -1,7 +1,7 @@
 {
   "name": "mcp-services",
-  "version": "2.2.2",
-  "description": "Multi-tool MCP server + REST API for AI agents. 28 tools: web scraping, SEO toolkit, agent memory, screenshot, PDF, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, multi-chain blockchain data, and security toolkit (URL scanning, wallet check, contract analysis, email auth, threat intelligence, header audit).",
+  "version": "2.3.0",
+  "description": "Multi-tool MCP server + REST API for AI agents. 29 tools: web scraping, SEO toolkit, agent memory, screenshot, PDF, PDF-to-DOCX, WHOIS, DNS, SSL, OCR, HTML-to-Markdown, multi-chain blockchain data, and security toolkit (URL scanning, wallet check, contract analysis, email auth, threat intelligence, header audit).",
   "type": "module",
   "bin": {
     "mcp-services": "./server.js"
@@ -15,8 +15,10 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^12.6.2",
+    "docx": "^9.6.0",
     "dotenv": "^17.3.1",
     "express": "^4.21.0",
+    "pdfjs-dist": "^5.5.207",
     "puppeteer-core": "^24.0.0",
     "stripe": "^20.4.0",
     "viem": "^2.21.0",

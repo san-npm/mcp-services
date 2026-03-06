@@ -1,6 +1,6 @@
 # MCP Services — Complete Documentation
 
-> Multi-tool MCP server + REST API for AI agents by SKILLS.ws — 28 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, blockchain data, and security toolkit.
+> Multi-tool MCP server + REST API for AI agents by SKILLS.ws — 29 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, blockchain data, and security toolkit.
 
 Website: https://mcp.skills.ws
 GitHub: https://github.com/san-npm/mcp-services
@@ -10,7 +10,7 @@ License: MIT | Author: Commit Media SARL
 
 ## What is MCP Services?
 
-MCP Services is a Model Context Protocol (MCP) server that exposes 28 tools to AI agents via Server-Sent Events (SSE) transport. It also provides the same tools as a standard REST API. The server handles web scraping, site crawling, structured data extraction, SEO analysis (SERP, on-page, keywords), persistent agent memory, screenshots, PDF generation, domain intelligence (WHOIS, DNS, SSL), content extraction (HTML-to-Markdown, OCR), multi-chain EVM blockchain queries, and a security toolkit (URL scanning, wallet risk, contract analysis, email authentication, threat intelligence, header auditing).
+MCP Services is a Model Context Protocol (MCP) server that exposes 29 tools to AI agents via Server-Sent Events (SSE) transport. It also provides the same tools as a standard REST API. The server handles web scraping, site crawling, structured data extraction, SEO analysis (SERP, on-page, keywords), persistent agent memory, screenshots, PDF generation, domain intelligence (WHOIS, DNS, SSL), content extraction (HTML-to-Markdown, OCR), multi-chain EVM blockchain queries, and a security toolkit (URL scanning, wallet risk, contract analysis, email authentication, threat intelligence, header auditing).
 
 ## MCP Connection
 
@@ -152,7 +152,15 @@ Parameters:
 
 REST: `GET /api/pdf?url=https://example.com`
 
-### 14. html2md
+### 14. pdf2docx
+Convert a PDF file (from URL) to DOCX/Word format. Extracts text and structure from the PDF, reconstructs lines by Y-position grouping, detects headings (short uppercase lines), and builds a properly formatted Word document.
+
+Parameters:
+- `url` (string, required) — URL to a PDF file
+
+REST: `GET /api/pdf2docx?url=https://example.com/document.pdf`
+
+### 15. html2md
 Fetch a URL and convert the page content to clean Markdown. Removes navigation, ads, and scripts. Extracts the main article content with proper heading, link, list, and code block formatting.
 
 Parameters:
@@ -160,7 +168,7 @@ Parameters:
 
 REST: `GET /api/html2md?url=https://example.com`
 
-### 15. ocr
+### 16. ocr
 Extract text from an image URL using OCR (Tesseract.js). Supports common image formats.
 
 Parameters:
@@ -168,7 +176,7 @@ Parameters:
 
 REST: `GET /api/ocr?url=https://example.com/image.png`
 
-### 16. whois
+### 17. whois
 Look up WHOIS information for a domain. Returns registrar, creation date, expiry, name servers, and more.
 
 Parameters:
@@ -176,7 +184,7 @@ Parameters:
 
 REST: `GET /api/whois?domain=example.com`
 
-### 17. dns
+### 18. dns
 Look up DNS records for a domain. Supports individual record types or ALL.
 
 Parameters:
@@ -185,7 +193,7 @@ Parameters:
 
 REST: `GET /api/dns?domain=example.com&type=ALL`
 
-### 18. ssl
+### 19. ssl
 Check SSL certificate details for a domain. Returns issuer, validity dates, expiry countdown, and fingerprint.
 
 Parameters:
@@ -193,7 +201,7 @@ Parameters:
 
 REST: `GET /api/ssl?domain=example.com`
 
-### 19. balance
+### 20. balance
 Get native token balance for an address on any of 6 supported EVM chains.
 
 Parameters:
@@ -202,7 +210,7 @@ Parameters:
 
 REST: `GET /api/chain/balance?address=0x...&chain=ethereum`
 
-### 20. erc20_balance
+### 21. erc20_balance
 Get ERC20 token balance for an address. Returns balance, symbol, and decimals.
 
 Parameters:
@@ -212,7 +220,7 @@ Parameters:
 
 REST: `GET /api/chain/erc20?address=0x...&token=0x...&chain=ethereum`
 
-### 21. transaction
+### 22. transaction
 Get transaction details by hash. Returns from, to, value, gas used, status, and block number.
 
 Parameters:
@@ -221,7 +229,7 @@ Parameters:
 
 REST: `GET /api/chain/tx?hash=0x...&chain=ethereum`
 
-### 22. url_scan
+### 23. url_scan
 Scan a URL for phishing, malware, and suspicious indicators. Uses VirusTotal (if API key configured) plus heuristics: typosquatting detection against 23 known brands, homoglyph detection, suspicious TLD check, free hosting detection, IP-as-hostname check, HTTP login page detection.
 
 Parameters:
@@ -229,7 +237,7 @@ Parameters:
 
 REST: `GET /api/security/url-scan?url=https://suspicious-site.com`
 
-### 23. wallet_check
+### 24. wallet_check
 Assess risk of an Ethereum wallet address. Checks Etherscan contract verification status, transaction patterns, OFAC/SDN sanctions list, and warns about address poisoning. Returns severity (clean/suspicious/malicious) with risk details.
 
 Parameters:
@@ -238,7 +246,7 @@ Parameters:
 
 REST: `GET /api/security/wallet-check?address=0x...&chain=ethereum`
 
-### 24. contract_scan
+### 25. contract_scan
 Detect honeypot tokens and risky smart contracts. Uses Honeypot.is API for buy/sell tax analysis, plus Etherscan source code analysis checking for: mint functions, blacklist mechanisms, fee manipulation, pausable transfers, proxy patterns, and ownership renouncement.
 
 Parameters:
@@ -247,7 +255,7 @@ Parameters:
 
 REST: `GET /api/security/contract-scan?address=0x...&chainId=1`
 
-### 25. email_headers
+### 26. email_headers
 Check email authentication configuration for a domain. Queries DNS for SPF, DKIM (checks common selectors: default, google, selector1, selector2, k1, mail, dkim), DMARC policy, and MX records.
 
 Parameters:
@@ -255,7 +263,7 @@ Parameters:
 
 REST: `GET /api/security/email-headers?domain=example.com`
 
-### 26. threat_intel
+### 27. threat_intel
 Look up an Indicator of Compromise (IOC) across multiple threat intelligence sources. Queries AbuseIPDB (IPs), VirusTotal (all types), and OTX AlienVault (all types). Returns weighted confidence score combining all sources. Auto-detects IOC type or accepts explicit type.
 
 Parameters:
@@ -264,7 +272,7 @@ Parameters:
 
 REST: `GET /api/security/threat-intel?ioc=8.8.8.8&type=ip`
 
-### 27. header_audit
+### 28. header_audit
 Audit a website's security headers and produce a score from 0 to 100. Checks: Strict-Transport-Security (HSTS), Content-Security-Policy (CSP), X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection. Also checks cookie security flags (Secure, HttpOnly, SameSite).
 
 Parameters:
@@ -272,7 +280,7 @@ Parameters:
 
 REST: `GET /api/security/header-audit?url=https://example.com`
 
-### 28. vuln_headers
+### 29. vuln_headers
 Check a website for information-leaking HTTP headers. Detects: Server version disclosure, X-Powered-By, X-AspNet-Version, X-AspNetMvc-Version, debug/trace headers, and CORS misconfiguration (Access-Control-Allow-Origin: *).
 
 Parameters:

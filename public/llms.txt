@@ -1,6 +1,6 @@
 # MCP Services
 
-> Multi-tool hosted MCP server for AI agents by SKILLS.ws -- 28 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, blockchain data, and security toolkit.
+> Multi-tool hosted MCP server for AI agents by SKILLS.ws -- 29 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, blockchain data, and security toolkit.
 
 ## MCP Connection
 
@@ -16,7 +16,7 @@ SSE endpoint: https://mcp.skills.ws/mcp/sse
 }
 ```
 
-## Tools (28)
+## Tools (29)
 
 ### Web Scraping
 1. **scrape** -- URL to clean Markdown with headings, lists, links, code blocks, tables. Returns title, markdown, wordCount, links[]. Parameters: url.
@@ -38,23 +38,24 @@ SSE endpoint: https://mcp.skills.ws/mcp/sse
 ### Content & Media
 12. **screenshot** -- PNG/JPEG screenshot of any URL. Parameters: url, format, width, height, fullPage.
 13. **pdf** -- Generate PDF from any URL. Parameters: url.
-14. **html2md** -- Convert URL to Markdown (simple). Parameters: url.
-15. **ocr** -- Extract text from image URL via OCR. Parameters: url.
+14. **pdf2docx** -- Convert PDF (from URL) to Word/DOCX format. Extracts text with heading detection. Parameters: url.
+15. **html2md** -- Convert URL to Markdown (simple). Parameters: url.
+16. **ocr** -- Extract text from image URL via OCR. Parameters: url.
 
 ### Domain Intelligence
-16. **whois** -- WHOIS lookup. Parameters: domain.
-17. **dns** -- DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA, ALL). Parameters: domain, type.
-18. **ssl** -- SSL certificate check. Parameters: domain.
+17. **whois** -- WHOIS lookup. Parameters: domain.
+18. **dns** -- DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA, ALL). Parameters: domain, type.
+19. **ssl** -- SSL certificate check. Parameters: domain.
 
 ### Blockchain (6 chains)
-19. **balance** -- Native token balance. Parameters: address, chain.
-20. **erc20_balance** -- ERC20 token balance. Parameters: address, token, chain.
-21. **transaction** -- Transaction details by hash. Parameters: hash, chain.
+20. **balance** -- Native token balance. Parameters: address, chain.
+21. **erc20_balance** -- ERC20 token balance. Parameters: address, token, chain.
+22. **transaction** -- Transaction details by hash. Parameters: hash, chain.
 
 Supported chains: Ethereum, Base, Arbitrum, Optimism, Polygon, Celo.
 
 ### Security Toolkit
-22. **url_scan** -- Phishing & malware URL detection. VirusTotal lookup + heuristics (typosquatting, homoglyphs, suspicious TLDs, free hosting, IP hostnames). Parameters: url.
+23. **url_scan** -- Phishing & malware URL detection. VirusTotal lookup + heuristics (typosquatting, homoglyphs, suspicious TLDs, free hosting, IP hostnames). Parameters: url.
 23. **wallet_check** -- Ethereum wallet risk assessment. Etherscan contract verification, transaction pattern analysis, OFAC sanctions check, address poisoning warning. Parameters: address, chain (ethereum/base/arbitrum/optimism/polygon).
 24. **contract_scan** -- Smart contract honeypot & risk detection. Honeypot.is API + source code analysis (mint functions, blacklists, fee manipulation, pausable, proxy). Parameters: address, chainId (1/8453/42161/10/137).
 25. **email_headers** -- Email authentication check. SPF, DKIM, DMARC, MX records via DNS. Parameters: domain.

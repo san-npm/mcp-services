@@ -17,6 +17,8 @@ import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
 import { memoryStore, memoryGet, memorySearch, memoryList, memoryDelete, resolveNamespace } from './memory.js';
 import { urlScan, walletCheck, contractScan, emailHeaders, threatIntel, headerAudit, vulnHeaders } from './security.js';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,6 +29,48 @@ const MAX_SSE_SESSIONS = parseInt(process.env.MAX_SSE_SESSIONS, 10) || 50;
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB for html2md/ocr text
 let activeBrowsers = 0;
+
+// ─── PDF to DOCX conversion helper ───
+async function convertPdfToDocx(pdfBuffer) {
+  const doc = await getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+  const paragraphs = [];
+
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    const lines = [];
+    let currentLine = '';
+    let lastY = null;
+    for (const item of content.items) {
+      if (lastY !== null && Math.abs(item.transform[5] - lastY) > 2) {
+        lines.push(currentLine);
+        currentLine = '';
+      }
+      currentLine += (currentLine && lastY !== null && Math.abs(item.transform[5] - lastY) <= 2 ? ' ' : '') + item.str;
+      lastY = item.transform[5];
+    }
+    if (currentLine) lines.push(currentLine);
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) { paragraphs.push(new Paragraph({ text: '' })); continue; }
+      const isHeading = trimmed.length < 100 && trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed);
+      paragraphs.push(new Paragraph({
+        children: [new TextRun({ text: trimmed, bold: isHeading, size: isHeading ? 28 : 22 })],
+        heading: isHeading ? HeadingLevel.HEADING_2 : undefined,
+      }));
+    }
+    if (i < doc.numPages) paragraphs.push(new Paragraph({ text: '' }));
+  }
+  doc.destroy();
+
+  const wordDoc = new DocxDocument({
+    sections: [{ properties: {}, children: paragraphs }],
+    creator: 'MCP Services',
+    title: 'Converted PDF',
+  });
+  return Packer.toBuffer(wordDoc);
+}
 
 // ─── Chain configs ───
 const CHAINS = {
@@ -239,7 +283,7 @@ app.get('/', (_, res) => {
 // Health
 app.get('/health', (_, res) => res.json({
   status: 'ok',
-  services: ['scrape', 'crawl', 'extract', 'serp', 'onpage-seo', 'keywords', 'memory-store', 'memory-get', 'memory-search', 'memory-list', 'memory-delete', 'screenshot', 'pdf', 'html2md', 'ocr', 'whois', 'dns', 'ssl', 'balance', 'erc20', 'transaction']
+  services: ['scrape', 'crawl', 'extract', 'serp', 'onpage-seo', 'keywords', 'memory-store', 'memory-get', 'memory-search', 'memory-list', 'memory-delete', 'screenshot', 'pdf', 'pdf2docx', 'html2md', 'ocr', 'whois', 'dns', 'ssl', 'balance', 'erc20', 'transaction', 'url-scan', 'wallet-check', 'contract-scan', 'email-headers', 'threat-intel', 'header-audit', 'vuln-headers']
 }));
 
 // Screenshot endpoint
@@ -304,6 +348,33 @@ app.get('/api/pdf', async (req, res) => {
   } catch (err) {
     console.error('[pdf]', err);
     if (!res.headersSent) res.status(500).json({ error: 'PDF generation failed' });
+  }
+});
+
+// PDF to DOCX endpoint
+app.get('/api/pdf2docx', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required (URL to a PDF file)' });
+  if (!validateUrl(url)) return res.status(400).json({ error: 'Invalid or blocked URL' });
+  if (!await validateUrlAsync(url)) return res.status(400).json({ error: 'URL resolves to blocked address' });
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('pdf') && !url.toLowerCase().endsWith('.pdf')) {
+      return res.status(400).json({ error: 'URL does not appear to be a PDF file' });
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length > MAX_PDF_BYTES) return res.status(400).json({ error: 'PDF too large (max 50MB)' });
+
+    const docxBuf = await convertPdfToDocx(buf);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="converted.docx"');
+    res.send(docxBuf);
+  } catch (err) {
+    console.error('[pdf2docx]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'PDF to DOCX conversion failed: ' + err.message });
   }
 });
 
@@ -860,6 +931,31 @@ mcpServer.tool('pdf', 'Generate a PDF of any URL.', {
     if (pdf.length > MAX_PDF_BYTES) throw new Error('PDF too large');
     return { content: [{ type: 'resource', uri: `data:application/pdf;base64,${pdf.toString('base64')}`, mimeType: 'application/pdf' }] };
   });
+});
+
+mcpServer.tool('pdf2docx', 'Convert a PDF file (from URL) to DOCX/Word format. Extracts text and structure from the PDF and builds a Word document.', {
+  url: { type: 'string', description: 'URL to a PDF file' },
+}, async ({ url }) => {
+  if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
+  if (!await validateUrlAsync(url)) throw new Error('URL resolves to blocked address');
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
+  const contentType = resp.headers.get('content-type') || '';
+  if (!contentType.includes('pdf') && !url.toLowerCase().endsWith('.pdf')) {
+    throw new Error('URL does not appear to be a PDF file');
+  }
+  const buf = Buffer.from(await resp.arrayBuffer());
+  if (buf.length > MAX_PDF_BYTES) throw new Error('PDF too large (max 50MB)');
+
+  const docxBuf = await convertPdfToDocx(buf);
+  return {
+    content: [{
+      type: 'resource',
+      uri: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${docxBuf.toString('base64')}`,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }],
+  };
 });
 
 mcpServer.tool('whois', 'Look up WHOIS information for a domain.', {

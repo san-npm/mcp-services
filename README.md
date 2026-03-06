@@ -1,6 +1,6 @@
 # MCP Services
 
-Multi-tool MCP server + REST API for AI agents. 28 tools across web scraping, SEO analysis, agent memory, screenshot/PDF generation, domain intelligence, content extraction, multi-chain EVM blockchain queries, and security toolkit.
+Multi-tool MCP server + REST API for AI agents. 29 tools across web scraping, SEO analysis, agent memory, screenshot/PDF generation, domain intelligence, content extraction, multi-chain EVM blockchain queries, and security toolkit.
 
 **Live:** [mcp.skills.ws](https://mcp.skills.ws) | **Docs:** [llms.txt](https://mcp.skills.ws/llms.txt) | **npm:** `npm install -g mcp-services`
 
@@ -34,7 +34,7 @@ mcp-services
 
 ---
 
-## Tools (28)
+## Tools (29)
 
 ### Web Scraping
 | Tool | Endpoint | Description |
@@ -64,6 +64,7 @@ mcp-services
 |------|----------|-------------|
 | `screenshot` | `GET /api/screenshot` | PNG/JPEG screenshot of any URL |
 | `pdf` | `GET /api/pdf` | Generate PDF of any URL |
+| `pdf2docx` | `GET /api/pdf2docx` | Convert PDF (from URL) to Word/DOCX -- text extraction with heading detection |
 
 ### Content Extraction
 | Tool | Endpoint | Description |
@@ -168,6 +169,7 @@ curl "https://mcp.skills.ws/api/ssl?domain=example.com"
 # Content
 curl "https://mcp.skills.ws/api/screenshot?url=https://example.com&format=png"
 curl "https://mcp.skills.ws/api/pdf?url=https://example.com"
+curl "https://mcp.skills.ws/api/pdf2docx?url=https://example.com/document.pdf"
 
 # Blockchain
 curl "https://mcp.skills.ws/api/chain/balance?address=0x...&chain=ethereum"
@@ -231,7 +233,7 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
                   |  +---------+    +--------------+    |
                   |                                     |
   REST API ------>  +--------------------------------+  |
-                  |  |        28 Tool Handlers        |  |
+                  |  |        29 Tool Handlers        |  |
                   |  | scrape | crawl | extract       |  |
                   |  | serp | onpage_seo | keywords   |  |
                   |  | memory (5) | screenshot | pdf  |  |
