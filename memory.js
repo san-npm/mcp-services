@@ -220,6 +220,10 @@ export function memoryList(namespace, offset = 0, limit = 20) {
   };
 }
 
+export function closeDb() {
+  try { db.close(); } catch {}
+}
+
 export function memoryDelete(namespace, key) {
   if (!namespace || !key) throw new Error('namespace and key are required');
   const info = stmts.delete.run({ namespace, key });

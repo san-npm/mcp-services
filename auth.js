@@ -229,11 +229,47 @@ export function getRequestLog() {
   return { ...requestLog };
 }
 
+// ─── MCP auth helper (reuses same tiers as REST) ───
+export async function mcpAuth(req) {
+  // 1. Check API key (via query param or header)
+  const apiKey = req.query.apikey || req.headers['x-api-key'];
+  if (apiKey) {
+    if (isValidKey(apiKey)) {
+      requestLog.apikey++;
+      return { tier: 'apikey', apiKey };
+    }
+    return { tier: null, error: 'Invalid or revoked API key' };
+  }
+
+  // 2. Check x402 payment
+  if (req.headers['x-payment']) {
+    if (await verifyX402(req)) {
+      requestLog.x402++;
+      return { tier: 'x402' };
+    }
+    return { tier: null, error: 'Invalid x402 payment' };
+  }
+
+  // 3. Free tier — IP rate limit
+  resetIfNeeded();
+  const ip = req.ip || 'unknown';
+  const count = (ipCounts.get(ip) || 0) + 1;
+  ipCounts.set(ip, count);
+
+  if (count > FREE_LIMIT) {
+    requestLog.blocked++;
+    return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
+  }
+
+  requestLog.free++;
+  return { tier: 'free', ip };
+}
+
 // ─── Middleware ───
 export async function authMiddleware(req, res, next) {
   // Skip health
   if (req.path === '/health') return next();
-  // Skip MCP SSE
+  // Skip MCP SSE — auth handled in SSE handler directly
   if (req.path.startsWith('/mcp/')) return next();
   // Skip billing routes (handled separately)
   if (req.path.startsWith('/billing/')) return next();

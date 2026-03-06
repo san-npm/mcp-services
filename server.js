@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import 'dotenv/config';
+import crypto from 'crypto';
 import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -11,7 +12,7 @@ import { spawn } from 'child_process';
 import { resolve, resolve4 } from 'dns/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { authMiddleware, adminRoutes } from './auth.js';
+import { authMiddleware, adminRoutes, mcpAuth } from './auth.js';
 import { stripeRoutes } from './stripe.js';
 import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js';
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
@@ -183,6 +184,40 @@ async function validateUrlAsync(urlStr) {
     // DNS resolution failed — fail closed to prevent SSRF bypass
     return false;
   }
+}
+
+// SSRF-safe fetch — resolves DNS upfront, pins the IP, and fetches via IP with Host header
+// Prevents DNS rebinding between validateUrlAsync() and the actual fetch()
+async function ssrfSafeFetch(urlStr, opts = {}) {
+  const u = new URL(urlStr);
+  const host = u.hostname.toLowerCase();
+  let targetUrl = urlStr;
+
+  // Resolve DNS and pin the IP for non-IP-literal hosts
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(host) && !host.startsWith('[')) {
+    const addrs = await resolve4(host);
+    if (!addrs.length) throw new Error('DNS resolution failed');
+    if (!addrs.every(ip => !isPrivateIp(ip))) throw new Error('URL resolves to blocked address');
+    // Replace hostname with resolved IP, pass original Host via header
+    u.hostname = addrs[0];
+    targetUrl = u.toString();
+    opts.headers = { ...opts.headers, Host: host };
+  }
+
+  const resp = await fetch(targetUrl, { ...opts, redirect: 'manual' });
+
+  // Block redirects to internal addresses
+  if ([301, 302, 303, 307, 308].includes(resp.status)) {
+    const location = resp.headers.get('location');
+    if (location) {
+      const redirectUrl = new URL(location, urlStr);
+      if (!validateUrl(redirectUrl.href)) throw new Error('Redirect to blocked URL');
+      if (!await validateUrlAsync(redirectUrl.href)) throw new Error('Redirect resolves to blocked address');
+      return ssrfSafeFetch(redirectUrl.href, opts);
+    }
+  }
+
+  return resp;
 }
 
 // Set up Puppeteer request interception to block SSRF via redirects
@@ -362,7 +397,7 @@ app.get('/api/pdf2docx', async (req, res) => {
   if (!await validateUrlAsync(url)) return res.status(400).json({ error: 'URL resolves to blocked address' });
 
   try {
-    const resp = await fetch(url);
+    const resp = await ssrfSafeFetch(url);
     if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
     const contentType = resp.headers.get('content-type') || '';
     if (!contentType.includes('pdf') && !new URL(url).pathname.toLowerCase().endsWith('.pdf')) {
@@ -944,7 +979,7 @@ mcpServer.tool('pdf2docx', 'Convert a PDF file (from URL) to DOCX/Word format. E
   if (!validateUrl(url)) throw new Error('Invalid or blocked URL');
   if (!await validateUrlAsync(url)) throw new Error('URL resolves to blocked address');
 
-  const resp = await fetch(url);
+  const resp = await ssrfSafeFetch(url);
   if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
   const contentType = resp.headers.get('content-type') || '';
   if (!contentType.includes('pdf') && !new URL(url).pathname.toLowerCase().endsWith('.pdf')) {
@@ -1163,23 +1198,39 @@ mcpServer.tool('keywords_suggest', 'Get keyword suggestions using Google Autocom
 
 // ─── Agent Memory MCP tools ───
 
+// Resolve MCP memory namespace with per-session isolation
+function mcpNamespace(namespace, extra) {
+  const sid = extra?.sessionId;
+  const auth = sid ? sessionAuth[sid] : null;
+  if (auth?.tier === 'apikey') {
+    // API key users get isolated by key hash (same as REST)
+    const hash = crypto.createHash('sha256').update(auth.apiKey).digest('hex').slice(0, 16);
+    return `key:${hash}:${namespace}`;
+  }
+  if (auth?.tier === 'x402') {
+    return `x402:${namespace}`;
+  }
+  // Free tier — scope by IP
+  const ip = auth?.ip || 'unknown';
+  return `free:${ip}:${namespace}`;
+}
+
 mcpServer.tool('memory_store', 'Store a memory in persistent storage. Memories are scoped by namespace. Upserts on key conflict.', {
   namespace: { type: 'string', description: 'Memory namespace (e.g., "my-agent", "project-x")' },
   key: { type: 'string', description: 'Memory key (max 256 chars)' },
   value: { type: 'string', description: 'Memory value (max 100KB)' },
   tags: { type: 'string', description: 'Comma-separated tags (optional)', default: '' },
-}, async ({ namespace, key, value, tags = '' }) => {
+}, async ({ namespace, key, value, tags = '' }, extra) => {
   const tagArr = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-  // For MCP, namespace is used directly (no req object for auth scoping)
-  const result = memoryStore(`mcp:${namespace}`, key, value, tagArr);
+  const result = memoryStore(mcpNamespace(namespace, extra), key, value, tagArr);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 
 mcpServer.tool('memory_get', 'Retrieve a memory by namespace and key.', {
   namespace: { type: 'string', description: 'Memory namespace' },
   key: { type: 'string', description: 'Memory key' },
-}, async ({ namespace, key }) => {
-  const result = memoryGet(`mcp:${namespace}`, key);
+}, async ({ namespace, key }, extra) => {
+  const result = memoryGet(mcpNamespace(namespace, extra), key);
   if (!result) return { content: [{ type: 'text', text: JSON.stringify({ error: 'Memory not found' }) }] };
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
@@ -1188,8 +1239,8 @@ mcpServer.tool('memory_search', 'Search memories by text query within a namespac
   namespace: { type: 'string', description: 'Memory namespace' },
   query: { type: 'string', description: 'Search query' },
   limit: { type: 'number', description: 'Max results (1-50)', default: 20 },
-}, async ({ namespace, query, limit = 20 }) => {
-  const result = memorySearch(`mcp:${namespace}`, query, limit);
+}, async ({ namespace, query, limit = 20 }, extra) => {
+  const result = memorySearch(mcpNamespace(namespace, extra), query, limit);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 
@@ -1197,16 +1248,16 @@ mcpServer.tool('memory_list', 'List all memories in a namespace with pagination.
   namespace: { type: 'string', description: 'Memory namespace' },
   offset: { type: 'number', description: 'Pagination offset', default: 0 },
   limit: { type: 'number', description: 'Max items (1-100)', default: 20 },
-}, async ({ namespace, offset = 0, limit = 20 }) => {
-  const result = memoryList(`mcp:${namespace}`, offset, limit);
+}, async ({ namespace, offset = 0, limit = 20 }, extra) => {
+  const result = memoryList(mcpNamespace(namespace, extra), offset, limit);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 
 mcpServer.tool('memory_delete', 'Delete a memory by namespace and key.', {
   namespace: { type: 'string', description: 'Memory namespace' },
   key: { type: 'string', description: 'Memory key' },
-}, async ({ namespace, key }) => {
-  const result = memoryDelete(`mcp:${namespace}`, key);
+}, async ({ namespace, key }, extra) => {
+  const result = memoryDelete(mcpNamespace(namespace, extra), key);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 
@@ -1266,16 +1317,28 @@ mcpServer.tool('vuln_headers', 'Detect information leakage in HTTP response head
 
 // ─── SSE Transport for MCP ───
 const transports = {};
+// Map sessionId -> auth context for per-session scoping
+const sessionAuth = {};
 
 app.get('/mcp/sse', async (req, res) => {
   if (Object.keys(transports).length >= MAX_SSE_SESSIONS) {
     return res.status(429).json({ error: 'Too many active sessions' });
   }
 
+  // Authenticate the MCP connection (same tiers as REST)
+  const auth = await mcpAuth(req);
+  if (!auth.tier) {
+    return res.status(auth.error?.includes('API key') ? 401 : 429).json({ error: auth.error });
+  }
+
   const transport = new SSEServerTransport('/mcp/messages', res);
   transports[transport.sessionId] = transport;
+  sessionAuth[transport.sessionId] = auth;
 
-  const cleanup = () => { delete transports[transport.sessionId]; };
+  const cleanup = () => {
+    delete transports[transport.sessionId];
+    delete sessionAuth[transport.sessionId];
+  };
   res.on('close', cleanup);
   res.on('error', cleanup);
 
@@ -1292,6 +1355,16 @@ app.post('/mcp/messages', async (req, res) => {
   const sessionId = req.query.sessionId;
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
+
+  // For free tier, count each message against the daily limit
+  const auth = sessionAuth[sessionId];
+  if (auth?.tier === 'free') {
+    const recheck = await mcpAuth(req);
+    if (!recheck.tier) {
+      return res.status(429).json({ error: recheck.error });
+    }
+  }
+
   try {
     await transport.handlePostMessage(req, res);
   } catch (err) {
@@ -1301,9 +1374,37 @@ app.post('/mcp/messages', async (req, res) => {
 });
 
 // ─── Start ───
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`MCP Services running on port ${PORT}`);
   console.log(`  HTTP API: http://localhost:${PORT}/api/`);
   console.log(`  MCP SSE:  http://localhost:${PORT}/mcp/sse`);
   console.log(`  Health:   http://localhost:${PORT}/health`);
 });
+
+// ─── Graceful shutdown ───
+async function shutdown(signal) {
+  console.log(`\n[shutdown] ${signal} received, shutting down gracefully...`);
+
+  // Stop accepting new connections
+  server.close(() => console.log('[shutdown] HTTP server closed'));
+
+  // Close all SSE connections
+  for (const [id, transport] of Object.entries(transports)) {
+    try { transport.close?.(); } catch {}
+    delete transports[id];
+    delete sessionAuth[id];
+  }
+  console.log('[shutdown] SSE sessions closed');
+
+  // Close SQLite database (imported from memory.js)
+  try {
+    const { closeDb } = await import('./memory.js');
+    closeDb();
+    console.log('[shutdown] SQLite database closed');
+  } catch {}
+
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
