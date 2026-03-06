@@ -52,7 +52,10 @@ for (const k of envKeys) {
   }
 }
 
+const BANNED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function addApiKey(key, meta = {}) {
+  if (BANNED_KEYS.has(key)) throw new Error('Invalid key name');
   keyStore[key] = {
     customerId: meta.customerId || null,
     subscriptionId: meta.subscriptionId || null,
@@ -230,7 +233,7 @@ export function getRequestLog() {
 }
 
 // ─── MCP auth helper (reuses same tiers as REST) ───
-export async function mcpAuth(req) {
+export async function mcpAuth(req, { countUsage = true } = {}) {
   // 1. Check API key (via query param or header)
   const apiKey = req.query.apikey || req.headers['x-api-key'];
   if (apiKey) {
@@ -253,15 +256,25 @@ export async function mcpAuth(req) {
   // 3. Free tier — IP rate limit
   resetIfNeeded();
   const ip = req.ip || 'unknown';
-  const count = (ipCounts.get(ip) || 0) + 1;
-  ipCounts.set(ip, count);
 
-  if (count > FREE_LIMIT) {
-    requestLog.blocked++;
-    return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
+  if (countUsage) {
+    const count = (ipCounts.get(ip) || 0) + 1;
+    ipCounts.set(ip, count);
+
+    if (count > FREE_LIMIT) {
+      requestLog.blocked++;
+      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
+    }
+
+    requestLog.free++;
+  } else {
+    // Auth-only check (e.g. SSE handshake) — verify limit without incrementing
+    const current = ipCounts.get(ip) || 0;
+    if (current >= FREE_LIMIT) {
+      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
+    }
   }
 
-  requestLog.free++;
   return { tier: 'free', ip };
 }
 
@@ -365,6 +378,7 @@ export function adminRoutes(app) {
     if (!checkAdminAuth(req)) return res.status(401).json({ error: 'Unauthorized' });
     const { key, subscriptionId, customerId } = req.body || {};
     let revoked = 0;
+    if (key && BANNED_KEYS.has(key)) return res.status(400).json({ error: 'Invalid key name' });
     if (key && keyStore[key]) {
       keyStore[key].active = false;
       keyStore[key].revokedAt = new Date().toISOString();

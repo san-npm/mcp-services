@@ -188,7 +188,9 @@ async function validateUrlAsync(urlStr) {
 
 // SSRF-safe fetch — resolves DNS upfront, pins the IP, and fetches via IP with Host header
 // Prevents DNS rebinding between validateUrlAsync() and the actual fetch()
-async function ssrfSafeFetch(urlStr, opts = {}) {
+const MAX_REDIRECTS = 5;
+async function ssrfSafeFetch(urlStr, opts = {}, _depth = 0) {
+  if (_depth > MAX_REDIRECTS) throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
   const u = new URL(urlStr);
   const host = u.hostname.toLowerCase();
   let targetUrl = urlStr;
@@ -213,7 +215,7 @@ async function ssrfSafeFetch(urlStr, opts = {}) {
       const redirectUrl = new URL(location, urlStr);
       if (!validateUrl(redirectUrl.href)) throw new Error('Redirect to blocked URL');
       if (!await validateUrlAsync(redirectUrl.href)) throw new Error('Redirect resolves to blocked address');
-      return ssrfSafeFetch(redirectUrl.href, opts);
+      return ssrfSafeFetch(redirectUrl.href, opts, _depth + 1);
     }
   }
 
@@ -251,6 +253,7 @@ function clampInt(val, fallback, min, max) {
 }
 
 // Async openssl — non-blocking alternative to spawnSync
+// Domain args are validated by validateDomain() (requires alphanumeric first char, blocking --flag).
 function runOpenssl(args, input = '', timeout = 10000) {
   return new Promise((resolve, reject) => {
     const proc = spawn('openssl', args, { timeout });
@@ -297,7 +300,7 @@ app.set('trust proxy', 1); // Trust first proxy — required for accurate req.ip
 stripeRoutes(app);
 
 // JSON body parser (after webhook route)
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
 // Auth & billing middleware
 app.use(authMiddleware);
@@ -1325,8 +1328,8 @@ app.get('/mcp/sse', async (req, res) => {
     return res.status(429).json({ error: 'Too many active sessions' });
   }
 
-  // Authenticate the MCP connection (same tiers as REST)
-  const auth = await mcpAuth(req);
+  // Authenticate the MCP connection — don't count against free limit (only tool calls count)
+  const auth = await mcpAuth(req, { countUsage: false });
   if (!auth.tier) {
     return res.status(auth.error?.includes('API key') ? 401 : 429).json({ error: auth.error });
   }
@@ -1356,10 +1359,10 @@ app.post('/mcp/messages', async (req, res) => {
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
 
-  // For free tier, count each message against the daily limit
+  // For free tier, count each tool call against the daily limit
   const auth = sessionAuth[sessionId];
   if (auth?.tier === 'free') {
-    const recheck = await mcpAuth(req);
+    const recheck = await mcpAuth(req, { countUsage: true });
     if (!recheck.tier) {
       return res.status(429).json({ error: recheck.error });
     }

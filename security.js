@@ -52,37 +52,52 @@ async function validateUserUrlAsync(urlStr) {
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB max response body
 
-function fetchJson(url, options = {}) {
+const MAX_FETCH_REDIRECTS = 5;
+
+async function _ssrfSafeFetchRaw(url, options = {}, depth = 0) {
+  if (depth > MAX_FETCH_REDIRECTS) throw new Error(`Too many redirects (max ${MAX_FETCH_REDIRECTS})`);
+  if (!validateUserUrl(url)) throw new Error('URL blocked by SSRF policy');
+  if (!await validateUserUrlAsync(url)) throw new Error('URL resolves to blocked address');
+
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, { headers: options.headers || {}, timeout: 10000 }, (res) => {
-      let data = '';
-      let bytes = 0;
-      res.on('data', (chunk) => {
-        bytes += chunk.length;
-        if (bytes > MAX_RESPONSE_BYTES) { res.destroy(); reject(new Error('Response too large')); return; }
-        data += chunk;
-      });
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-        catch { resolve({ status: res.statusCode, data }); }
-      });
+      // Re-validate redirect targets before following
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.destroy();
+        const redirectUrl = new URL(res.headers.location, url).href;
+        _ssrfSafeFetchRaw(redirectUrl, options, depth + 1).then(resolve, reject);
+        return;
+      }
+      resolve(res);
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
   });
 }
 
-function fetchHeaders(url) {
+async function fetchJson(url, options = {}) {
+  const res = await _ssrfSafeFetchRaw(url, options);
   return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https') ? https : http;
-    const req = mod.get(url, { timeout: 10000 }, (res) => {
-      res.destroy();
-      resolve({ status: res.statusCode, headers: res.headers });
+    let data = '';
+    let bytes = 0;
+    res.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > MAX_RESPONSE_BYTES) { res.destroy(); reject(new Error('Response too large')); return; }
+      data += chunk;
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+    res.on('end', () => {
+      try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
+      catch { resolve({ status: res.statusCode, data }); }
+    });
+    res.on('error', reject);
   });
+}
+
+async function fetchHeaders(url) {
+  const res = await _ssrfSafeFetchRaw(url);
+  res.destroy();
+  return { status: res.statusCode, headers: res.headers };
 }
 
 // ─── Known brand list for typosquatting ───
