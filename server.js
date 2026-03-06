@@ -133,8 +133,8 @@ async function validateUrlAsync(urlStr) {
     const addrs = await resolve4(host);
     return addrs.every(ip => !isPrivateIp(ip));
   } catch {
-    // DNS resolution failed — could be a non-existent domain, let Puppeteer handle the error
-    return true;
+    // DNS resolution failed — fail closed to prevent SSRF bypass
+    return false;
   }
 }
 

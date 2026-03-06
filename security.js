@@ -47,7 +47,7 @@ async function validateUserUrlAsync(urlStr) {
     if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return true;
     const addrs = await resolve4(host);
     return addrs.every(ip => !isPrivateIp(ip));
-  } catch { return true; }
+  } catch { return false; }
 }
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB max response body
