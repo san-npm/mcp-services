@@ -31,11 +31,14 @@ const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB for html2md/ocr text
 let activeBrowsers = 0;
 
 // ─── PDF to DOCX conversion helper ───
+const MAX_PDF_PAGES = 200;
+
 async function convertPdfToDocx(pdfBuffer) {
   const doc = await getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
   const paragraphs = [];
+  const pageCount = Math.min(doc.numPages, MAX_PDF_PAGES);
 
-  for (let i = 1; i <= doc.numPages; i++) {
+  for (let i = 1; i <= pageCount; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
     const lines = [];
@@ -60,7 +63,7 @@ async function convertPdfToDocx(pdfBuffer) {
         heading: isHeading ? HeadingLevel.HEADING_2 : undefined,
       }));
     }
-    if (i < doc.numPages) paragraphs.push(new Paragraph({ text: '' }));
+    if (i < pageCount) paragraphs.push(new Paragraph({ text: '' }));
   }
   doc.destroy();
 
@@ -362,9 +365,11 @@ app.get('/api/pdf2docx', async (req, res) => {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
     const contentType = resp.headers.get('content-type') || '';
-    if (!contentType.includes('pdf') && !url.toLowerCase().endsWith('.pdf')) {
+    if (!contentType.includes('pdf') && !new URL(url).pathname.toLowerCase().endsWith('.pdf')) {
       return res.status(400).json({ error: 'URL does not appear to be a PDF file' });
     }
+    const contentLength = parseInt(resp.headers.get('content-length'), 10);
+    if (contentLength > MAX_PDF_BYTES) return res.status(400).json({ error: 'PDF too large (max 50MB)' });
     const buf = Buffer.from(await resp.arrayBuffer());
     if (buf.length > MAX_PDF_BYTES) return res.status(400).json({ error: 'PDF too large (max 50MB)' });
 
@@ -374,7 +379,7 @@ app.get('/api/pdf2docx', async (req, res) => {
     res.send(docxBuf);
   } catch (err) {
     console.error('[pdf2docx]', err);
-    if (!res.headersSent) res.status(500).json({ error: 'PDF to DOCX conversion failed: ' + err.message });
+    if (!res.headersSent) res.status(500).json({ error: 'PDF to DOCX conversion failed' });
   }
 });
 
@@ -942,9 +947,11 @@ mcpServer.tool('pdf2docx', 'Convert a PDF file (from URL) to DOCX/Word format. E
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Failed to fetch PDF: HTTP ${resp.status}`);
   const contentType = resp.headers.get('content-type') || '';
-  if (!contentType.includes('pdf') && !url.toLowerCase().endsWith('.pdf')) {
+  if (!contentType.includes('pdf') && !new URL(url).pathname.toLowerCase().endsWith('.pdf')) {
     throw new Error('URL does not appear to be a PDF file');
   }
+  const contentLength = parseInt(resp.headers.get('content-length'), 10);
+  if (contentLength > MAX_PDF_BYTES) throw new Error('PDF too large (max 50MB)');
   const buf = Buffer.from(await resp.arrayBuffer());
   if (buf.length > MAX_PDF_BYTES) throw new Error('PDF too large (max 50MB)');
 
