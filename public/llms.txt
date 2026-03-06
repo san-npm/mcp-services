@@ -1,6 +1,6 @@
 # MCP Services
 
-> Multi-tool hosted MCP server for AI agents by SKILLS.ws — 21 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, and blockchain data.
+> Multi-tool hosted MCP server for AI agents by SKILLS.ws -- 28 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, blockchain data, and security toolkit.
 
 ## MCP Connection
 
@@ -16,42 +16,53 @@ SSE endpoint: https://mcp.skills.ws/mcp/sse
 }
 ```
 
-## Tools (21)
+## Tools (28)
 
 ### Web Scraping
-1. **scrape** — URL to clean Markdown with headings, lists, links, code blocks, tables. Returns title, markdown, wordCount, links[]. Parameters: url.
-2. **crawl** — Crawl a site from starting URL, follow internal links. Parameters: url, depth (1-3), maxPages (1-20).
-3. **extract** — Extract structured data: JSON-LD, Open Graph, meta tags, headings, links (internal/external), images, tables as JSON. Parameters: url.
+1. **scrape** -- URL to clean Markdown with headings, lists, links, code blocks, tables. Returns title, markdown, wordCount, links[]. Parameters: url.
+2. **crawl** -- Crawl a site from starting URL, follow internal links. Parameters: url, depth (1-3), maxPages (1-20).
+3. **extract** -- Extract structured data: JSON-LD, Open Graph, meta tags, headings, links (internal/external), images, tables as JSON. Parameters: url.
 
 ### SEO Toolkit
-4. **serp** — Scrape Google search results for a keyword. Returns top 20 organic results, People Also Ask, featured snippets, related searches. Parameters: keyword.
-5. **onpage_seo** — Full on-page SEO analysis with score (0-100). Checks title, meta description, headings, images, links, schema markup, Open Graph, viewport, lang. Parameters: url.
-6. **keywords_suggest** — Keyword suggestions via Google Autocomplete with A-Z expansion. Returns 100+ related keywords. Parameters: keyword.
+4. **serp** -- Scrape Google search results for a keyword. Returns top 20 organic results, People Also Ask, featured snippets, related searches. Parameters: keyword.
+5. **onpage_seo** -- Full on-page SEO analysis with score (0-100). Checks title, meta description, headings, images, links, schema markup, Open Graph, viewport, lang. Parameters: url.
+6. **keywords_suggest** -- Keyword suggestions via Google Autocomplete with A-Z expansion. Returns 100+ related keywords. Parameters: keyword.
 
 ### Agent Memory
-7. **memory_store** — Store a memory (key-value, namespace-scoped, with tags). Upserts on key conflict. Parameters: namespace, key, value, tags.
-8. **memory_get** — Retrieve a memory by namespace + key. Parameters: namespace, key.
-9. **memory_search** — Full-text search across memories in a namespace. Parameters: namespace, query, limit.
-10. **memory_list** — List all memories in a namespace with pagination. Parameters: namespace, offset, limit.
-11. **memory_delete** — Delete a memory by namespace + key. Parameters: namespace, key.
+7. **memory_store** -- Store a memory (key-value, namespace-scoped, with tags). Upserts on key conflict. Parameters: namespace, key, value, tags.
+8. **memory_get** -- Retrieve a memory by namespace + key. Parameters: namespace, key.
+9. **memory_search** -- Full-text search across memories in a namespace. Parameters: namespace, query, limit.
+10. **memory_list** -- List all memories in a namespace with pagination. Parameters: namespace, offset, limit.
+11. **memory_delete** -- Delete a memory by namespace + key. Parameters: namespace, key.
 
 ### Content & Media
-12. **screenshot** — PNG/JPEG screenshot of any URL. Parameters: url, format, width, height, fullPage.
-13. **pdf** — Generate PDF from any URL. Parameters: url.
-14. **html2md** — Convert URL to Markdown (simple). Parameters: url.
-15. **ocr** — Extract text from image URL via OCR. Parameters: url.
+12. **screenshot** -- PNG/JPEG screenshot of any URL. Parameters: url, format, width, height, fullPage.
+13. **pdf** -- Generate PDF from any URL. Parameters: url.
+14. **html2md** -- Convert URL to Markdown (simple). Parameters: url.
+15. **ocr** -- Extract text from image URL via OCR. Parameters: url.
 
 ### Domain Intelligence
-16. **whois** — WHOIS lookup. Parameters: domain.
-17. **dns** — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA, ALL). Parameters: domain, type.
-18. **ssl** — SSL certificate check. Parameters: domain.
+16. **whois** -- WHOIS lookup. Parameters: domain.
+17. **dns** -- DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA, ALL). Parameters: domain, type.
+18. **ssl** -- SSL certificate check. Parameters: domain.
 
 ### Blockchain (6 chains)
-19. **balance** — Native token balance. Parameters: address, chain.
-20. **erc20_balance** — ERC20 token balance. Parameters: address, token, chain.
-21. **transaction** — Transaction details by hash. Parameters: hash, chain.
+19. **balance** -- Native token balance. Parameters: address, chain.
+20. **erc20_balance** -- ERC20 token balance. Parameters: address, token, chain.
+21. **transaction** -- Transaction details by hash. Parameters: hash, chain.
 
 Supported chains: Ethereum, Base, Arbitrum, Optimism, Polygon, Celo.
+
+### Security Toolkit
+22. **url_scan** -- Phishing & malware URL detection. VirusTotal lookup + heuristics (typosquatting, homoglyphs, suspicious TLDs, free hosting, IP hostnames). Parameters: url.
+23. **wallet_check** -- Ethereum wallet risk assessment. Etherscan contract verification, transaction pattern analysis, OFAC sanctions check, address poisoning warning. Parameters: address, chain (ethereum/base/arbitrum/optimism/polygon).
+24. **contract_scan** -- Smart contract honeypot & risk detection. Honeypot.is API + source code analysis (mint functions, blacklists, fee manipulation, pausable, proxy). Parameters: address, chainId (1/8453/42161/10/137).
+25. **email_headers** -- Email authentication check. SPF, DKIM, DMARC, MX records via DNS. Parameters: domain.
+26. **threat_intel** -- IOC (Indicator of Compromise) lookup. AbuseIPDB + VirusTotal + OTX AlienVault with weighted confidence scoring. Auto-detects type or specify: ip, domain, url, hash_md5, hash_sha1, hash_sha256. Parameters: ioc, iocType.
+27. **header_audit** -- Security header score (0-100). Checks HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, cookie security flags. Parameters: url.
+28. **vuln_headers** -- Information leakage detection. Checks Server version, X-Powered-By, ASP.NET headers, debug headers, CORS misconfiguration. Parameters: url.
+
+Security tools work without API keys (heuristics-only). For full coverage, configure: VT_API_KEY, ABUSEIPDB_API_KEY, ETHERSCAN_API_KEY.
 
 ## Authentication
 

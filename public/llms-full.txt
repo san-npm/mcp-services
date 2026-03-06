@@ -1,6 +1,6 @@
 # MCP Services — Complete Documentation
 
-> Multi-tool MCP server + REST API for AI agents by SKILLS.ws — 21 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, and blockchain data.
+> Multi-tool MCP server + REST API for AI agents by SKILLS.ws — 28 tools across web scraping, SEO, agent memory, content extraction, domain intelligence, blockchain data, and security toolkit.
 
 Website: https://mcp.skills.ws
 GitHub: https://github.com/san-npm/mcp-services
@@ -10,7 +10,7 @@ License: MIT | Author: Commit Media SARL
 
 ## What is MCP Services?
 
-MCP Services is a Model Context Protocol (MCP) server that exposes 21 tools to AI agents via Server-Sent Events (SSE) transport. It also provides the same tools as a standard REST API. The server handles web scraping, site crawling, structured data extraction, SEO analysis (SERP, on-page, keywords), persistent agent memory, screenshots, PDF generation, domain intelligence (WHOIS, DNS, SSL), content extraction (HTML-to-Markdown, OCR), and multi-chain EVM blockchain queries.
+MCP Services is a Model Context Protocol (MCP) server that exposes 28 tools to AI agents via Server-Sent Events (SSE) transport. It also provides the same tools as a standard REST API. The server handles web scraping, site crawling, structured data extraction, SEO analysis (SERP, on-page, keywords), persistent agent memory, screenshots, PDF generation, domain intelligence (WHOIS, DNS, SSL), content extraction (HTML-to-Markdown, OCR), multi-chain EVM blockchain queries, and a security toolkit (URL scanning, wallet risk, contract analysis, email authentication, threat intelligence, header auditing).
 
 ## MCP Connection
 
@@ -221,6 +221,67 @@ Parameters:
 
 REST: `GET /api/chain/tx?hash=0x...&chain=ethereum`
 
+### 22. url_scan
+Scan a URL for phishing, malware, and suspicious indicators. Uses VirusTotal (if API key configured) plus heuristics: typosquatting detection against 23 known brands, homoglyph detection, suspicious TLD check, free hosting detection, IP-as-hostname check, HTTP login page detection.
+
+Parameters:
+- `url` (string, required) — URL to scan (must be http/https)
+
+REST: `GET /api/security/url-scan?url=https://suspicious-site.com`
+
+### 23. wallet_check
+Assess risk of an Ethereum wallet address. Checks Etherscan contract verification status, transaction patterns, OFAC/SDN sanctions list, and warns about address poisoning. Returns severity (clean/suspicious/malicious) with risk details.
+
+Parameters:
+- `address` (string, required) — Ethereum address (0x + 40 hex chars)
+- `chain` (string, default: "ethereum") — Chain: ethereum, base, arbitrum, optimism, polygon
+
+REST: `GET /api/security/wallet-check?address=0x...&chain=ethereum`
+
+### 24. contract_scan
+Detect honeypot tokens and risky smart contracts. Uses Honeypot.is API for buy/sell tax analysis, plus Etherscan source code analysis checking for: mint functions, blacklist mechanisms, fee manipulation, pausable transfers, proxy patterns, and ownership renouncement.
+
+Parameters:
+- `address` (string, required) — Contract address (0x + 40 hex chars)
+- `chainId` (number, default: 1) — Chain ID: 1 (Ethereum), 8453 (Base), 42161 (Arbitrum), 10 (Optimism), 137 (Polygon)
+
+REST: `GET /api/security/contract-scan?address=0x...&chainId=1`
+
+### 25. email_headers
+Check email authentication configuration for a domain. Queries DNS for SPF, DKIM (checks common selectors: default, google, selector1, selector2, k1, mail, dkim), DMARC policy, and MX records.
+
+Parameters:
+- `domain` (string, required) — Domain to check (e.g., "example.com")
+
+REST: `GET /api/security/email-headers?domain=example.com`
+
+### 26. threat_intel
+Look up an Indicator of Compromise (IOC) across multiple threat intelligence sources. Queries AbuseIPDB (IPs), VirusTotal (all types), and OTX AlienVault (all types). Returns weighted confidence score combining all sources. Auto-detects IOC type or accepts explicit type.
+
+Parameters:
+- `ioc` (string, required) — The IOC value: IP address, domain, URL, MD5/SHA1/SHA256 hash
+- `iocType` (string, default: "auto") — IOC type: auto, ip, domain, url, hash_md5, hash_sha1, hash_sha256
+
+REST: `GET /api/security/threat-intel?ioc=8.8.8.8&type=ip`
+
+### 27. header_audit
+Audit a website's security headers and produce a score from 0 to 100. Checks: Strict-Transport-Security (HSTS), Content-Security-Policy (CSP), X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection. Also checks cookie security flags (Secure, HttpOnly, SameSite).
+
+Parameters:
+- `url` (string, required) — URL to audit (must be http/https, public host)
+
+REST: `GET /api/security/header-audit?url=https://example.com`
+
+### 28. vuln_headers
+Check a website for information-leaking HTTP headers. Detects: Server version disclosure, X-Powered-By, X-AspNet-Version, X-AspNetMvc-Version, debug/trace headers, and CORS misconfiguration (Access-Control-Allow-Origin: *).
+
+Parameters:
+- `url` (string, required) — URL to check (must be http/https, public host)
+
+REST: `GET /api/security/vuln-headers?url=https://example.com`
+
+> **Note:** Security tools (22-28) degrade gracefully without API keys — they use heuristics-only mode. For full coverage, configure VT_API_KEY, ABUSEIPDB_API_KEY, and ETHERSCAN_API_KEY.
+
 ---
 
 ## Supported Chains
@@ -275,10 +336,11 @@ Payment JSON format: `{ "network": "celo", "token": "USDC", "txHash": "0x...", "
 
 ## Security
 
-- SSRF protection: URL validation + DNS pre-resolution + Puppeteer request interception
+- SSRF protection: URL validation + DNS pre-resolution + private IP blocking + Puppeteer request interception
 - Domain validation: regex allowlist prevents command injection
+- Input sanitization: IOC format validation, address format checks, chain/chainId allowlists
 - Rate limiting: IP-based daily limits on free tier
-- Resource limits: max 3 concurrent browsers, 50 SSE sessions, 50MB PDF cap
+- Resource limits: max 3 concurrent browsers, 50 SSE sessions, 50MB PDF cap, 5MB fetch body limit
 - Async SSL: non-blocking openssl via child_process.spawn
 - x402 on-chain verification: transaction receipts verified on Base/Celo RPCs
 - Memory namespace isolation: API key hashed with SHA-256 for DB scoping
@@ -311,3 +373,6 @@ Environment variables:
 - `DOMAIN` — Base URL for Stripe checkout redirects (default: https://mcp.skills.ws)
 - `X402_PRICE_USD` — x402 price per call (default: 0.005)
 - `X402_RECEIVER` — x402 payment receiver address
+- `VT_API_KEY` — VirusTotal API key (free: 4 req/min, 500/day)
+- `ABUSEIPDB_API_KEY` — AbuseIPDB API key (free: 1000 req/day)
+- `ETHERSCAN_API_KEY` — Etherscan API key (free: 5 req/sec)

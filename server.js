@@ -16,6 +16,7 @@ import { stripeRoutes } from './stripe.js';
 import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js';
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
 import { memoryStore, memoryGet, memorySearch, memoryList, memoryDelete, resolveNamespace } from './memory.js';
+import { urlScan, walletCheck, contractScan, emailHeaders, threatIntel, headerAudit, vulnHeaders } from './security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -732,6 +733,92 @@ app.delete('/api/memory', (req, res) => {
   }
 });
 
+// ─── Security endpoints ───
+
+app.get('/api/security/url-scan', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  try {
+    const result = await urlScan(url);
+    res.json(result);
+  } catch (err) {
+    console.error('[url_scan]', err);
+    res.status(500).json({ error: 'URL scan failed' });
+  }
+});
+
+app.get('/api/security/wallet-check', async (req, res) => {
+  const { address, chain = 'ethereum' } = req.query;
+  if (!address) return res.status(400).json({ error: 'address parameter required' });
+  try {
+    const result = await walletCheck(address, chain);
+    res.json(result);
+  } catch (err) {
+    console.error('[wallet_check]', err);
+    res.status(500).json({ error: 'Wallet check failed' });
+  }
+});
+
+app.get('/api/security/contract-scan', async (req, res) => {
+  const { address, chainId = '1' } = req.query;
+  if (!address) return res.status(400).json({ error: 'address parameter required' });
+  try {
+    const result = await contractScan(address, parseInt(chainId));
+    res.json(result);
+  } catch (err) {
+    console.error('[contract_scan]', err);
+    res.status(500).json({ error: 'Contract scan failed' });
+  }
+});
+
+app.get('/api/security/email-headers', async (req, res) => {
+  const { domain } = req.query;
+  if (!domain) return res.status(400).json({ error: 'domain parameter required' });
+  try {
+    const result = await emailHeaders(domain);
+    res.json(result);
+  } catch (err) {
+    console.error('[email_headers]', err);
+    res.status(500).json({ error: 'Email header check failed' });
+  }
+});
+
+app.get('/api/security/threat-intel', async (req, res) => {
+  const { ioc, type = 'auto' } = req.query;
+  if (!ioc) return res.status(400).json({ error: 'ioc parameter required' });
+  try {
+    const result = await threatIntel(ioc, type);
+    res.json(result);
+  } catch (err) {
+    console.error('[threat_intel]', err);
+    res.status(500).json({ error: 'Threat intel lookup failed' });
+  }
+});
+
+app.get('/api/security/header-audit', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  try {
+    const result = await headerAudit(url);
+    res.json(result);
+  } catch (err) {
+    console.error('[header_audit]', err);
+    res.status(500).json({ error: 'Header audit failed' });
+  }
+});
+
+app.get('/api/security/vuln-headers', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  try {
+    const result = await vulnHeaders(url);
+    res.json(result);
+  } catch (err) {
+    console.error('[vuln_headers]', err);
+    res.status(500).json({ error: 'Vulnerability header check failed' });
+  }
+});
+
 // ─── MCP Server ───
 const mcpServer = new McpServer({
   name: 'mcp-services',
@@ -1017,6 +1104,60 @@ mcpServer.tool('memory_delete', 'Delete a memory by namespace and key.', {
   key: { type: 'string', description: 'Memory key' },
 }, async ({ namespace, key }) => {
   const result = memoryDelete(`mcp:${namespace}`, key);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+// ─── Security MCP tools ───
+
+mcpServer.tool('url_scan', 'Scan a URL for phishing, typosquatting, homoglyphs, and malware. Uses VirusTotal (if configured) and heuristic analysis. Returns severity (clean/suspicious/malicious) with detailed risk indicators.', {
+  url: { type: 'string', description: 'URL to scan' },
+}, async ({ url }) => {
+  const result = await urlScan(url);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('wallet_check', 'Check a wallet address for scam reports, OFAC sanctions, contract verification status, and suspicious transaction patterns. Supports Ethereum, Base, Arbitrum, Optimism, Polygon.', {
+  address: { type: 'string', description: 'Wallet or contract address (0x...)' },
+  chain: { type: 'string', description: 'Chain: ethereum, base, arbitrum, optimism, polygon', default: 'ethereum' },
+}, async ({ address, chain = 'ethereum' }) => {
+  const result = await walletCheck(address, chain);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('contract_scan', 'Scan a smart contract for honeypot detection, rug pull indicators (mint functions, blacklists, fee manipulation, proxy patterns), and source verification status.', {
+  address: { type: 'string', description: 'Contract address (0x...)' },
+  chainId: { type: 'number', description: 'Chain ID: 1 (ETH), 8453 (Base), 42161 (Arb), 10 (OP), 137 (Polygon)', default: 1 },
+}, async ({ address, chainId = 1 }) => {
+  const result = await contractScan(address, chainId);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('email_headers', 'Validate email authentication for a domain. Checks SPF, DKIM (common selectors), DMARC policy, and MX records. Detects spoofing vulnerabilities.', {
+  domain: { type: 'string', description: 'Domain to check (e.g., example.com)' },
+}, async ({ domain }) => {
+  const result = await emailHeaders(domain);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('threat_intel', 'Look up an IOC (IP, domain, URL, or file hash) across threat intelligence sources. Uses AbuseIPDB, VirusTotal, and OTX AlienVault with weighted confidence scoring.', {
+  ioc: { type: 'string', description: 'Indicator of compromise: IP address, domain, URL, MD5, SHA1, or SHA256 hash' },
+  type: { type: 'string', description: 'IOC type: auto, ip, domain, url, hash_md5, hash_sha1, hash_sha256', default: 'auto' },
+}, async ({ ioc, type = 'auto' }) => {
+  const result = await threatIntel(ioc, type);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('header_audit', 'Audit security headers of a URL. Checks HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, and cookie security. Returns a score (0-100).', {
+  url: { type: 'string', description: 'URL to audit' },
+}, async ({ url }) => {
+  const result = await headerAudit(url);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+
+mcpServer.tool('vuln_headers', 'Detect information leakage in HTTP response headers. Checks for exposed server versions, debug headers, X-Powered-By, CORS misconfigurations, and error responses.', {
+  url: { type: 'string', description: 'URL to check' },
+}, async ({ url }) => {
+  const result = await vulnHeaders(url);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 

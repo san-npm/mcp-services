@@ -11,7 +11,7 @@
 | **Support** | Community | Email | — |
 | **Payment** | — | Credit card (Stripe) | USDC or USDT on Base/Celo |
 
-## Tools Included (All Plans — 21 tools)
+## Tools Included (All Plans -- 28 tools)
 
 | Category | Tools | Endpoints |
 |---|---|---|
@@ -22,6 +22,7 @@
 | Content | html2md, ocr | `/api/html2md`, `/api/ocr` |
 | Domain Intel | whois, dns, ssl | `/api/whois`, `/api/dns`, `/api/ssl` |
 | Blockchain | balance, erc20_balance, transaction | `/api/chain/balance`, `/api/chain/erc20`, `/api/chain/tx` |
+| Security | url_scan, wallet_check, contract_scan, email_headers, threat_intel, header_audit, vuln_headers | `/api/security/*` |
 
 ## How to Get Started
 
