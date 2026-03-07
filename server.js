@@ -321,6 +321,11 @@ app.get('/', (_, res) => {
   res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 
+// MCP OAuth discovery — no OAuth, return proper JSON so clients don't choke
+app.get('/.well-known/oauth-authorization-server', (_, res) => {
+  res.status(404).json({ error: 'OAuth not supported. Connect to /mcp/sse directly (free tier) or with ?apikey=YOUR_KEY.' });
+});
+
 // Health
 app.get('/health', (_, res) => res.json({
   status: 'ok',
@@ -933,7 +938,9 @@ app.get('/api/security/vuln-headers', async (req, res) => {
   }
 });
 
-// ─── MCP Server ───
+// ─── MCP Server Factory ───
+// Creates a fresh McpServer per SSE connection (SDK requires one instance per transport)
+function createMcpServer() {
 const mcpServer = new McpServer({
   name: 'mcp-services',
   version: '2.0.0',
@@ -1318,6 +1325,9 @@ mcpServer.tool('vuln_headers', 'Detect information leakage in HTTP response head
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 
+return mcpServer;
+} // end createMcpServer
+
 // ─── SSE Transport for MCP ───
 const transports = {};
 // Map sessionId -> auth context for per-session scoping
@@ -1338,15 +1348,18 @@ app.get('/mcp/sse', async (req, res) => {
   transports[transport.sessionId] = transport;
   sessionAuth[transport.sessionId] = auth;
 
+  const server = createMcpServer();
+
   const cleanup = () => {
     delete transports[transport.sessionId];
     delete sessionAuth[transport.sessionId];
+    server.close().catch(() => {});
   };
   res.on('close', cleanup);
   res.on('error', cleanup);
 
   try {
-    await mcpServer.connect(transport);
+    await server.connect(transport);
   } catch (err) {
     console.error('[mcp]', err);
     cleanup();
