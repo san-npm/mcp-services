@@ -285,6 +285,7 @@ export async function authMiddleware(req, res, next) {
   // Skip MCP SSE — auth handled in SSE handler directly
   if (req.path.startsWith("/mcp/")) return next();
   // Skip OAuth discovery
+  if (req.path.startsWith("/oauth/")) return next();
   if (req.path.startsWith("/.well-known/")) return next();
   // Skip billing routes (handled separately)
   if (req.path.startsWith('/billing/')) return next();

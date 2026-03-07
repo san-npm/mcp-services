@@ -321,9 +321,12 @@ app.get('/', (_, res) => {
   res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 
-// MCP OAuth discovery — no OAuth, return proper JSON so clients don't choke
+// MCP OAuth — not supported, return proper JSON so clients don't choke on HTML 404s
 app.get('/.well-known/oauth-authorization-server', (_, res) => {
   res.status(404).json({ error: 'OAuth not supported. Connect to /mcp/sse directly (free tier) or with ?apikey=YOUR_KEY.' });
+});
+app.all('/oauth/:path*', (_, res) => {
+  res.status(404).json({ error: 'OAuth not supported.' });
 });
 
 // Health
