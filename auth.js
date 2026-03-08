@@ -27,6 +27,10 @@ const ALLOW_APIKEY_QUERY = process.env.ALLOW_APIKEY_QUERY
   : DEFAULT_ALLOW_APIKEY_QUERY;
 const APIKEY_QUERY_DEPRECATION_MSG = 'Query API key auth via ?apikey is deprecated; use X-Api-Key header instead.';
 
+if (process.env.NODE_ENV === 'production' && ALLOW_APIKEY_QUERY) {
+  console.error('[auth] ALLOW_APIKEY_QUERY=true in production weakens API key secrecy (query strings leak in logs/referrers). Set ALLOW_APIKEY_QUERY=false.');
+}
+
 function getApiKeyFromRequest(req) {
   const headerApiKey = req.headers['x-api-key'];
   const queryApiKey = req.query.apikey;

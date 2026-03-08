@@ -38,6 +38,32 @@ const SSE_ALLOWED_HOSTS = parseCsvEnv('SSE_ALLOWED_HOSTS');
 const SSE_ALLOWED_ORIGINS = parseCsvEnv('SSE_ALLOWED_ORIGINS');
 let activeBrowsers = 0;
 
+function productionHardeningWarnings() {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  if (!process.env.TRUST_PROXY || String(process.env.TRUST_PROXY).trim() === '') {
+    console.warn('[hardening] TRUST_PROXY is unset in production. Set an explicit value for your topology (false, 1, loopback, CIDR, etc.).');
+  }
+
+  if (!SSE_ALLOWED_HOSTS || SSE_ALLOWED_HOSTS.length === 0) {
+    console.warn('[hardening] SSE_ALLOWED_HOSTS is unset in production. Configure strict allowed hosts.');
+  }
+
+  if (!SSE_ALLOWED_ORIGINS || SSE_ALLOWED_ORIGINS.length === 0) {
+    console.warn('[hardening] SSE_ALLOWED_ORIGINS is unset in production. Configure strict allowed origins.');
+  }
+
+  if (!process.env.REDIS_URL) {
+    console.warn('[hardening] REDIS_URL is unset in production. Multi-instance rate limiting will not be shared across nodes.');
+  }
+
+  if (!process.env.STRIPE_WEBHOOK_IP_ALLOWLIST) {
+    console.warn('[hardening] STRIPE_WEBHOOK_IP_ALLOWLIST is unset. Consider edge/webapp source-IP filtering for webhook endpoint.');
+  }
+}
+
+productionHardeningWarnings();
+
 function parseCsvEnv(name) {
   const value = process.env[name];
   if (!value) return null;

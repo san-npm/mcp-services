@@ -22,10 +22,20 @@ This service is designed for internet exposure, but requires correct deployment 
 5. For multi-instance deployments, set `REDIS_URL` for shared rate-limit state
 6. Keep `X402_TEST_MODE=0` (test mode is ignored in production)
 7. Use `STRIPE_WEBHOOK_IP_ALLOWLIST` when your ingress path has stable source IPs
-8. Persist:
+8. Enforce webhook source filtering at the edge (WAF/reverse proxy), not only app layer
+9. Persist:
    - `KEYS_FILE`
    - `MEMORY_DB_PATH`
    - `X402_TX_CACHE_FILE`
+
+## Edge filtering guidance (webhooks)
+
+Recommended: restrict `POST /billing/webhook` at your reverse proxy/WAF to known Stripe source ranges and HTTPS only.
+
+Defense in depth order:
+1. Edge source filtering (IP/rules)
+2. `STRIPE_WEBHOOK_IP_ALLOWLIST` in app
+3. Stripe signature verification (`STRIPE_WEBHOOK_SECRET`)
 
 ## Dependency hygiene
 

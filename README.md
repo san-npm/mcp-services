@@ -252,10 +252,18 @@ For production, set `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS` to strict, exp
 - Keep `ALLOW_APIKEY_QUERY=false` (header auth only)
 - Configure `TRUST_PROXY` correctly for your network path (do not blindly set `true`)
 - Set strict `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS`
+- Use `REDIS_URL` for shared rate-limits in multi-instance deployments
 - Rotate `ADMIN_SECRET` and Stripe keys periodically
 - Keep `X402_TEST_MODE=0` in production (enforced by server)
 - Persist `KEYS_FILE`, `MEMORY_DB_PATH`, and `X402_TX_CACHE_FILE` on durable storage
 - Run `npm audit` in CI and fail builds on high/critical vulnerabilities
+
+### Production env quickstart
+
+```bash
+cp .env.production.example .env
+# then edit .env values for your domain, proxy topology, redis and secrets
+```
 
 ---
 
