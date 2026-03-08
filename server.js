@@ -1442,7 +1442,9 @@ return mcpServer;
 
 // ─── SSE Transport for MCP ───
 const transports = {};
-// Map sessionId -> auth context for per-session scoping
+// Map sessionId -> auth context for per-session scoping.
+// Security invariant: sessionId alone is never sufficient authorization.
+// Every /mcp/messages request must still satisfy the auth context recorded here.
 const sessionAuth = {};
 const sessionIp = {};
 const activeSsePerIp = new Map();
@@ -1526,14 +1528,31 @@ app.post('/mcp/messages', async (req, res) => {
   const auth = sessionAuth[sessionId];
   const isBillable = hasBillableMcpMessage(req.body);
 
-  if (isBillable && auth?.tier === 'free') {
+  if (!auth?.tier) {
+    return res.status(401).json({ error: 'Session auth mismatch' });
+  }
+
+  if (auth.tier === 'apikey') {
+    const requestApiKey = req.headers['x-api-key'] || req.query.apikey;
+    if (!requestApiKey) return res.status(401).json({ error: 'Session auth mismatch' });
+    if (requestApiKey !== auth.apiKey) return res.status(403).json({ error: 'Session auth mismatch' });
+  }
+
+  if (auth.tier === 'free') {
+    const requestIp = getClientIp(req);
+    if (!requestIp || requestIp !== auth.ip) {
+      return res.status(requestIp ? 403 : 401).json({ error: 'Session auth mismatch' });
+    }
+  }
+
+  if (isBillable && auth.tier === 'free') {
     const recheck = await mcpAuth(req, { countUsage: true });
-    if (!recheck.tier) {
+    if (recheck.tier !== 'free') {
       return res.status(429).json({ error: recheck.error });
     }
   }
 
-  if (isBillable && auth?.tier === 'x402') {
+  if (isBillable && auth.tier === 'x402') {
     const recheck = await mcpAuth(req, { countUsage: true });
     if (!recheck.tier || recheck.tier !== 'x402') {
       return x402PaymentRequiredResponse(res);
