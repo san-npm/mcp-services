@@ -29,6 +29,8 @@ const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
 const MAX_SSE_SESSIONS = parseInt(process.env.MAX_SSE_SESSIONS, 10) || 50;
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB for html2md/ocr text
+const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005;
+const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
 let activeBrowsers = 0;
 
 // ─── PDF to DOCX conversion helper ───
@@ -250,6 +252,30 @@ function clampInt(val, fallback, min, max) {
   const n = parseInt(val, 10);
   if (isNaN(n)) return fallback;
   return Math.min(Math.max(n, min), max);
+}
+
+function isBillableMcpMethod(method) {
+  return method === 'tools/call';
+}
+
+function hasBillableMcpMessage(payload) {
+  const messages = Array.isArray(payload) ? payload : [payload];
+  return messages.some(m => m && typeof m === 'object' && isBillableMcpMethod(m.method));
+}
+
+function x402PaymentRequiredResponse(res) {
+  return res.status(402).json({
+    error: 'Payment required',
+    x402: {
+      version: '1',
+      price: X402_PRICE_USD,
+      currency: 'USD',
+      receiver: X402_RECEIVER,
+      networks: ['base', 'celo'],
+      accepts: ['USDC', 'USDT'],
+      description: 'Pay per API call with stablecoins',
+    },
+  });
 }
 
 // Async openssl — non-blocking alternative to spawnSync
@@ -1375,15 +1401,21 @@ app.post('/mcp/messages', async (req, res) => {
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
 
-  // For free tier, count only tool calls (initialize/ping/notifications should not consume quota).
+  // Bill only tool calls; initialize/ping/notifications remain non-billable.
   const auth = sessionAuth[sessionId];
-  const message = req.body;
-  const messages = Array.isArray(message) ? message : [message];
-  const isToolCall = messages.some(m => m && typeof m === 'object' && m.method === 'tools/call');
-  if (auth?.tier === 'free' && isToolCall) {
+  const isBillable = hasBillableMcpMessage(req.body);
+
+  if (isBillable && auth?.tier === 'free') {
     const recheck = await mcpAuth(req, { countUsage: true });
     if (!recheck.tier) {
       return res.status(429).json({ error: recheck.error });
+    }
+  }
+
+  if (isBillable && auth?.tier === 'x402') {
+    const recheck = await mcpAuth(req, { countUsage: true });
+    if (!recheck.tier || recheck.tier !== 'x402') {
+      return x402PaymentRequiredResponse(res);
     }
   }
 
