@@ -1333,7 +1333,9 @@ return mcpServer;
 
 // ─── SSE Transport for MCP ───
 const transports = {};
-// Map sessionId -> auth context for per-session scoping
+// Map sessionId -> auth context for per-session scoping.
+// Security invariant: sessionId alone is never sufficient authorization.
+// Every /mcp/messages request must still satisfy the auth context recorded here.
 const sessionAuth = {};
 
 app.get('/mcp/sse', async (req, res) => {
@@ -1375,14 +1377,42 @@ app.post('/mcp/messages', async (req, res) => {
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
 
-  // For free tier, count only tool calls (initialize/ping/notifications should not consume quota).
   const auth = sessionAuth[sessionId];
+  if (!auth?.tier) {
+    return res.status(401).json({ error: 'Session auth mismatch' });
+  }
+
   const message = req.body;
   const messages = Array.isArray(message) ? message : [message];
   const isToolCall = messages.some(m => m && typeof m === 'object' && m.method === 'tools/call');
-  if (auth?.tier === 'free' && isToolCall) {
+
+  if (auth.tier === 'apikey') {
+    const requestApiKey = req.headers['x-api-key'] || req.query.apikey;
+    if (!requestApiKey) {
+      return res.status(401).json({ error: 'Session auth mismatch' });
+    }
+    if (requestApiKey !== auth.apiKey) {
+      return res.status(403).json({ error: 'Session auth mismatch' });
+    }
+  }
+
+  if (auth.tier === 'x402' && isToolCall) {
+    const recheck = await mcpAuth(req, { countUsage: false });
+    if (recheck.tier !== 'x402') {
+      return res.status(402).json({ error: 'Session auth mismatch' });
+    }
+  }
+
+  // For free tier, count only tool calls (initialize/ping/notifications should not consume quota).
+  if (auth.tier === 'free') {
+    if (!req.ip || req.ip !== auth.ip) {
+      return res.status(req.ip ? 403 : 401).json({ error: 'Session auth mismatch' });
+    }
+  }
+
+  if (auth.tier === 'free' && isToolCall) {
     const recheck = await mcpAuth(req, { countUsage: true });
-    if (!recheck.tier) {
+    if (recheck.tier !== 'free') {
       return res.status(429).json({ error: recheck.error });
     }
   }
