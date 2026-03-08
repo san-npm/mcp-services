@@ -19,8 +19,10 @@ This service is designed for internet exposure, but requires correct deployment 
 2. `ALLOW_APIKEY_QUERY=false`
 3. Correct `TRUST_PROXY` value for your reverse-proxy topology
 4. Set strict `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS`
-5. Keep `X402_TEST_MODE=0` (test mode is ignored in production)
-6. Persist:
+5. For multi-instance deployments, set `REDIS_URL` for shared rate-limit state
+6. Keep `X402_TEST_MODE=0` (test mode is ignored in production)
+7. Use `STRIPE_WEBHOOK_IP_ALLOWLIST` when your ingress path has stable source IPs
+8. Persist:
    - `KEYS_FILE`
    - `MEMORY_DB_PATH`
    - `X402_TX_CACHE_FILE`

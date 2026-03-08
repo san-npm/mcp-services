@@ -18,7 +18,8 @@ import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
 import { memoryStore, memoryGet, memorySearch, memoryList, memoryDelete, resolveNamespace } from './memory.js';
 import { urlScan, walletCheck, contractScan, emailHeaders, threatIntel, headerAudit, vulnHeaders } from './security.js';
-import { parseTrustProxyConfig, shouldWarnOnForwardedFor } from './ip.js';
+import { parseTrustProxyConfig, shouldWarnOnForwardedFor, getClientIp } from './ip.js';
+import { checkAndMaybeIncrement } from './rate-store.js';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 
@@ -28,6 +29,9 @@ const __dirname = dirname(__filename);
 const PORT = process.env.PORT || 3100;
 const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
 const MAX_SSE_SESSIONS = parseInt(process.env.MAX_SSE_SESSIONS, 10) || 50;
+const MAX_SSE_PER_IP = Math.max(1, parseInt(process.env.MAX_SSE_PER_IP || '5', 10));
+const SSE_CONNECT_MAX_PER_WINDOW = Math.max(1, parseInt(process.env.SSE_CONNECT_MAX_PER_WINDOW || '30', 10));
+const SSE_CONNECT_WINDOW_MS = Math.max(10_000, parseInt(process.env.SSE_CONNECT_WINDOW_MS || '60000', 10));
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB for html2md/ocr text
 const SSE_ALLOWED_HOSTS = parseCsvEnv('SSE_ALLOWED_HOSTS');
@@ -1440,10 +1444,23 @@ return mcpServer;
 const transports = {};
 // Map sessionId -> auth context for per-session scoping
 const sessionAuth = {};
+const sessionIp = {};
+const activeSsePerIp = new Map();
 
 app.get('/mcp/sse', async (req, res) => {
   if (Object.keys(transports).length >= MAX_SSE_SESSIONS) {
     return res.status(429).json({ error: 'Too many active sessions' });
+  }
+
+  const clientIp = getClientIp(req);
+  const currentIpSessions = activeSsePerIp.get(clientIp) || 0;
+  if (currentIpSessions >= MAX_SSE_PER_IP) {
+    return res.status(429).json({ error: 'Too many active sessions for this IP' });
+  }
+
+  const connectRate = await checkAndMaybeIncrement(`sse:connect:${clientIp}`, SSE_CONNECT_MAX_PER_WINDOW, SSE_CONNECT_WINDOW_MS, true);
+  if (!connectRate.allowed) {
+    return res.status(429).json({ error: 'Too many SSE connection attempts. Slow down.' });
   }
 
   const validation = validateSseRequest(req);
@@ -1465,12 +1482,21 @@ app.get('/mcp/sse', async (req, res) => {
   });
   transports[transport.sessionId] = transport;
   sessionAuth[transport.sessionId] = auth;
+  sessionIp[transport.sessionId] = clientIp;
+  activeSsePerIp.set(clientIp, currentIpSessions + 1);
 
   const server = createMcpServer();
 
   const cleanup = () => {
     delete transports[transport.sessionId];
     delete sessionAuth[transport.sessionId];
+    const ip = sessionIp[transport.sessionId];
+    delete sessionIp[transport.sessionId];
+    if (ip) {
+      const next = Math.max(0, (activeSsePerIp.get(ip) || 1) - 1);
+      if (next === 0) activeSsePerIp.delete(ip);
+      else activeSsePerIp.set(ip, next);
+    }
     server.close().catch(() => {});
   };
   res.on('close', cleanup);
@@ -1544,7 +1570,9 @@ async function shutdown(signal) {
     try { transport.close?.(); } catch {}
     delete transports[id];
     delete sessionAuth[id];
+    delete sessionIp[id];
   }
+  activeSsePerIp.clear();
   console.log('[shutdown] SSE sessions closed');
 
   // Close SQLite database (imported from memory.js)

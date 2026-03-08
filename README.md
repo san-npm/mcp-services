@@ -198,14 +198,21 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `CHROMIUM_PATH` | `/usr/bin/chromium-browser` | Path to Chromium |
 | `MAX_BROWSERS` | `3` | Max concurrent browser instances |
 | `MAX_SSE_SESSIONS` | `50` | Max MCP SSE sessions |
+| `MAX_SSE_PER_IP` | `5` | Max concurrent SSE sessions per client IP |
+| `SSE_CONNECT_MAX_PER_WINDOW` | `30` | Max SSE connection attempts per IP per window |
+| `SSE_CONNECT_WINDOW_MS` | `60000` | SSE connect rate-limit window in ms |
 | `SSE_ALLOWED_HOSTS` | -- | Comma-separated allowlist for `Host` header on `/mcp/sse` + `/mcp/messages` (e.g. `mcp.example.com,localhost`) |
 | `SSE_ALLOWED_ORIGINS` | -- | Optional comma-separated allowlist for `Origin` header (full origins like `https://app.example.com`) |
-| `FREE_DAILY_LIMIT` | `10` | Free tier daily limit |
+| `FREE_DAILY_LIMIT` | `10` | Free tier request limit |
+| `FREE_WINDOW_MS` | `86400000` | Free-tier rate-limit window in ms |
+| `REDIS_URL` | -- | Optional Redis backend for shared/distributed rate-limits |
 | `API_KEYS` | -- | Comma-separated valid API keys |
 | `ALLOW_APIKEY_QUERY` | `true` in non-production, `false` in production | Allow deprecated `?apikey=` auth during migration |
 | `ADMIN_SECRET` | -- | Secret for admin endpoints |
 | `STRIPE_SK` | -- | Stripe API key for Pro subscriptions |
 | `STRIPE_WEBHOOK_SECRET` | -- | Stripe webhook signing secret |
+| `STRIPE_WEBHOOK_IP_ALLOWLIST` | -- | Optional CSV allowlist for webhook source IPs |
+| `CHECKOUT_LIMIT_PER_HOUR` | `5` | Per-IP Stripe checkout creation limit |
 | `X402_PRICE_USD` | `0.005` | x402 price per call |
 | `X402_RECEIVER` | -- | x402 payment receiver address |
 | `X402_MAX_TX_AGE_SECONDS` | `86400` | Maximum accepted payment tx age in seconds (stale txs are rejected) |

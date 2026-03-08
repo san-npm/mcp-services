@@ -7,6 +7,7 @@ import { dirname } from 'path';
 import { createPublicClient, http, formatUnits } from 'viem';
 import { base, celo } from 'viem/chains';
 import { getClientIp } from './ip.js';
+import { checkAndMaybeIncrement, cleanupMemoryRateStore } from './rate-store.js';
 
 // ─── Config ───
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
@@ -153,17 +154,12 @@ export function getKeyStats() {
   };
 }
 
-// ─── In-memory stores (reset daily) ───
-const ipCounts = new Map();
-let lastReset = Date.now();
+// ─── Free-tier request window ───
+const FREE_WINDOW_MS = Math.max(60_000, parseInt(process.env.FREE_WINDOW_MS || String(24 * 60 * 60 * 1000), 10));
 
-function resetIfNeeded() {
-  const now = Date.now();
-  if (now - lastReset > 86400000) {
-    ipCounts.clear();
-    lastReset = now;
-  }
-}
+setInterval(() => {
+  cleanupMemoryRateStore();
+}, 10 * 60 * 1000).unref?.();
 
 // ─── x402 payment verification ───
 // Map of txHash -> timestamp for replay protection with TTL
@@ -367,28 +363,17 @@ export async function mcpAuth(req, { countUsage = true } = {}) {
   }
 
   // 3. Free tier — IP rate limit
-  resetIfNeeded();
   const ip = getClientIp(req);
+  const rateKey = `free:${ip}`;
+  const rate = await checkAndMaybeIncrement(rateKey, FREE_LIMIT, FREE_WINDOW_MS, countUsage);
 
-  if (countUsage) {
-    const count = (ipCounts.get(ip) || 0) + 1;
-    ipCounts.set(ip, count);
-
-    if (count > FREE_LIMIT) {
-      requestLog.blocked++;
-      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Send X-Api-Key header for unlimited access.` };
-    }
-
-    requestLog.free++;
-  } else {
-    // Auth-only check (e.g. SSE handshake) — verify limit without incrementing
-    const current = ipCounts.get(ip) || 0;
-    if (current >= FREE_LIMIT) {
-      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Send X-Api-Key header for unlimited access.` };
-    }
+  if (!rate.allowed) {
+    requestLog.blocked++;
+    return { tier: null, error: `Free limit reached (${FREE_LIMIT}/${Math.round(FREE_WINDOW_MS / 3600000)}h). Send X-Api-Key header for unlimited access.` };
   }
 
-  return { tier: 'free', ip };
+  if (countUsage) requestLog.free++;
+  return { tier: 'free', ip, remaining: rate.remaining };
 }
 
 // ─── Middleware ───
@@ -445,17 +430,16 @@ export async function authMiddleware(req, res, next) {
   }
 
   // 3. Free tier — IP rate limit
-  resetIfNeeded();
   const ip = getClientIp(req);
-  const count = (ipCounts.get(ip) || 0) + 1;
-  ipCounts.set(ip, count);
+  const rate = await checkAndMaybeIncrement(`free:${ip}`, FREE_LIMIT, FREE_WINDOW_MS, true);
 
-  if (count > FREE_LIMIT) {
+  if (!rate.allowed) {
     requestLog.blocked++;
     const x402 = getX402PaymentMetadata();
     return res.status(429).json({
-      error: 'Daily free limit reached',
+      error: 'Free limit reached',
       limit: FREE_LIMIT,
+      windowMs: FREE_WINDOW_MS,
       upgrade: {
         stripe: 'POST /billing/checkout for unlimited API key ($9/mo)',
         x402: {
@@ -472,7 +456,7 @@ export async function authMiddleware(req, res, next) {
   req.authTier = 'free';
   requestLog.free++;
   res.setHeader('X-RateLimit-Limit', FREE_LIMIT);
-  res.setHeader('X-RateLimit-Remaining', Math.max(0, FREE_LIMIT - count));
+  res.setHeader('X-RateLimit-Remaining', Math.max(0, rate.remaining));
   next();
 }
 
@@ -514,15 +498,16 @@ export function adminRoutes(app) {
     res.json({ revoked });
   });
 
-  app.get('/admin/stats', (req, res) => {
+  app.get('/admin/stats', async (req, res) => {
     if (!checkAdminAuth(req)) return res.status(401).json({ error: 'Unauthorized' });
-    resetIfNeeded();
     res.json({
-      freeUsers: ipCounts.size,
-      totalFreeRequests: [...ipCounts.values()].reduce((a, b) => a + b, 0),
+      freeUsers: null,
+      totalFreeRequests: null,
+      notes: 'Using rolling-window rate store (memory/redis). Per-IP aggregates are not enumerated.',
       keys: getKeyStats(),
       requests: getRequestLog(),
       freeLimit: FREE_LIMIT,
+      freeWindowMs: FREE_WINDOW_MS,
       x402Price: X402_PRICE_USD,
     });
   });
