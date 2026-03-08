@@ -18,6 +18,7 @@ import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
 import { memoryStore, memoryGet, memorySearch, memoryList, memoryDelete, resolveNamespace } from './memory.js';
 import { urlScan, walletCheck, contractScan, emailHeaders, threatIntel, headerAudit, vulnHeaders } from './security.js';
+import { parseTrustProxyConfig, shouldWarnOnForwardedFor } from './ip.js';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 
@@ -371,7 +372,17 @@ function parseCertOutput(raw) {
 
 // ─── Express API ───
 const app = express();
-app.set('trust proxy', 1); // Trust first proxy — required for accurate req.ip behind reverse proxy
+const trustProxyConfig = parseTrustProxyConfig(process.env.TRUST_PROXY);
+app.set('trust proxy', trustProxyConfig.expressValue);
+app.locals.trustProxyEnabled = trustProxyConfig.enabled;
+console.log(`[proxy] trust proxy=${String(trustProxyConfig.source)} (enabled=${trustProxyConfig.enabled})`);
+
+app.use((req, _, next) => {
+  if (shouldWarnOnForwardedFor(req)) {
+    console.warn(`[proxy] Received X-Forwarded-For while trust proxy is disabled. Ignoring header for ${req.method} ${req.originalUrl}.`);
+  }
+  next();
+});
 
 // Stripe billing routes FIRST (webhook needs raw body before express.json parses it)
 stripeRoutes(app);
