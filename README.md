@@ -195,6 +195,8 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `CHROMIUM_PATH` | `/usr/bin/chromium-browser` | Path to Chromium |
 | `MAX_BROWSERS` | `3` | Max concurrent browser instances |
 | `MAX_SSE_SESSIONS` | `50` | Max MCP SSE sessions |
+| `SSE_ALLOWED_HOSTS` | -- | Comma-separated allowlist for `Host` header on `/mcp/sse` + `/mcp/messages` (e.g. `mcp.example.com,localhost`) |
+| `SSE_ALLOWED_ORIGINS` | -- | Optional comma-separated allowlist for `Origin` header (full origins like `https://app.example.com`) |
 | `FREE_DAILY_LIMIT` | `10` | Free tier daily limit |
 | `API_KEYS` | -- | Comma-separated valid API keys |
 | `ADMIN_SECRET` | -- | Secret for admin endpoints |
@@ -206,6 +208,8 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `VT_API_KEY` | -- | VirusTotal API key (free: 4/min, 500/day) |
 | `ABUSEIPDB_API_KEY` | -- | AbuseIPDB API key (free: 1000/day) |
 | `ETHERSCAN_API_KEY` | -- | Etherscan API key (free: 5/sec) |
+
+For production, set `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS` to strict, explicit values (only your public MCP domain and trusted app origins). Avoid wildcards or broad internal host lists.
 
 ---
 

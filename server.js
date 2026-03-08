@@ -29,7 +29,84 @@ const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
 const MAX_SSE_SESSIONS = parseInt(process.env.MAX_SSE_SESSIONS, 10) || 50;
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB for html2md/ocr text
+const SSE_ALLOWED_HOSTS = parseCsvEnv('SSE_ALLOWED_HOSTS');
+const SSE_ALLOWED_ORIGINS = parseCsvEnv('SSE_ALLOWED_ORIGINS');
 let activeBrowsers = 0;
+
+function parseCsvEnv(name) {
+  const value = process.env[name];
+  if (!value) return null;
+  const parsed = value
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean);
+  return parsed.length ? parsed : null;
+}
+
+
+function getRequestHost(req) {
+  const rawHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+  if (!rawHost || typeof rawHost !== 'string') return null;
+  return rawHost.trim().toLowerCase();
+}
+
+function getOrigin(req) {
+  const rawOrigin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+  if (!rawOrigin || typeof rawOrigin !== 'string') return null;
+  return rawOrigin.trim().toLowerCase();
+}
+
+function isAllowedHost(host) {
+  if (!SSE_ALLOWED_HOSTS) return true;
+  const hostNoPort = host.split(':')[0];
+  return SSE_ALLOWED_HOSTS.includes(host) || SSE_ALLOWED_HOSTS.includes(hostNoPort);
+}
+
+function isAllowedOrigin(origin) {
+  if (!SSE_ALLOWED_ORIGINS || !origin) return true;
+  try {
+    const parsed = new URL(origin);
+    return SSE_ALLOWED_ORIGINS.includes(origin) || SSE_ALLOWED_ORIGINS.includes(parsed.origin.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function validateSseRequest(req) {
+  const host = getRequestHost(req);
+  if (!host) {
+    return { ok: false, status: 400, reason: 'Missing Host header' };
+  }
+  if (!isAllowedHost(host)) {
+    return {
+      ok: false,
+      status: 403,
+      reason: `Host header is not allowed: ${host}`,
+      details: { host, allowedHosts: SSE_ALLOWED_HOSTS },
+    };
+  }
+
+  const origin = getOrigin(req);
+  if (SSE_ALLOWED_ORIGINS && origin && !isAllowedOrigin(origin)) {
+    return {
+      ok: false,
+      status: 403,
+      reason: `Origin header is not allowed: ${origin}`,
+      details: { origin, allowedOrigins: SSE_ALLOWED_ORIGINS },
+    };
+  }
+
+  if (SSE_ALLOWED_ORIGINS && !origin) {
+    return {
+      ok: false,
+      status: 403,
+      reason: 'Missing Origin header while SSE_ALLOWED_ORIGINS is configured',
+      details: { allowedOrigins: SSE_ALLOWED_ORIGINS },
+    };
+  }
+
+  return { ok: true };
+}
 
 // ─── PDF to DOCX conversion helper ───
 const MAX_PDF_PAGES = 200;
@@ -1341,13 +1418,23 @@ app.get('/mcp/sse', async (req, res) => {
     return res.status(429).json({ error: 'Too many active sessions' });
   }
 
+  const validation = validateSseRequest(req);
+  if (!validation.ok) {
+    console.warn('[mcp/sse] blocked request:', validation.reason, validation.details || '');
+    return res.status(validation.status).json({ error: 'SSE request rejected', reason: validation.reason, ...validation.details });
+  }
+
   // Authenticate the MCP connection — don't count against free limit (only tool calls count)
   const auth = await mcpAuth(req, { countUsage: false });
   if (!auth.tier) {
     return res.status(auth.error?.includes('API key') ? 401 : 429).json({ error: auth.error });
   }
 
-  const transport = new SSEServerTransport('/mcp/messages', res);
+  const transport = new SSEServerTransport('/mcp/messages', res, {
+    enableDnsRebindingProtection: true,
+    allowedHosts: SSE_ALLOWED_HOSTS || undefined,
+    allowedOrigins: SSE_ALLOWED_ORIGINS || undefined,
+  });
   transports[transport.sessionId] = transport;
   sessionAuth[transport.sessionId] = auth;
 
@@ -1371,6 +1458,12 @@ app.get('/mcp/sse', async (req, res) => {
 });
 
 app.post('/mcp/messages', async (req, res) => {
+  const validation = validateSseRequest(req);
+  if (!validation.ok) {
+    console.warn('[mcp/messages] blocked request:', validation.reason, validation.details || '');
+    return res.status(validation.status).json({ error: 'SSE request rejected', reason: validation.reason, ...validation.details });
+  }
+
   const sessionId = Array.isArray(req.query.sessionId) ? req.query.sessionId[0] : req.query.sessionId;
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
