@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from '
 import { dirname } from 'path';
 import { createPublicClient, http, formatUnits } from 'viem';
 import { base, celo } from 'viem/chains';
+import { getClientIp } from './ip.js';
 
 // ─── Config ───
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
@@ -255,7 +256,7 @@ export async function mcpAuth(req, { countUsage = true } = {}) {
 
   // 3. Free tier — IP rate limit
   resetIfNeeded();
-  const ip = req.ip || 'unknown';
+  const ip = getClientIp(req);
 
   if (countUsage) {
     const count = (ipCounts.get(ip) || 0) + 1;
@@ -328,7 +329,7 @@ export async function authMiddleware(req, res, next) {
 
   // 3. Free tier — IP rate limit
   resetIfNeeded();
-  const ip = req.ip; // trust proxy is configured in server.js
+  const ip = getClientIp(req);
   const count = (ipCounts.get(ip) || 0) + 1;
   ipCounts.set(ip, count);
 

@@ -206,6 +206,27 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `VT_API_KEY` | -- | VirusTotal API key (free: 4/min, 500/day) |
 | `ABUSEIPDB_API_KEY` | -- | AbuseIPDB API key (free: 1000/day) |
 | `ETHERSCAN_API_KEY` | -- | Etherscan API key (free: 5/sec) |
+| `TRUST_PROXY` | `false` | Express trust proxy setting (`false`, `true`, hop count like `1`, or subnet names/CIDRs like `loopback`/`10.0.0.0/8`) |
+
+---
+
+## Reverse proxy & client IP configuration
+
+`mcp-services` defaults to `TRUST_PROXY=false`, which means the app ignores `X-Forwarded-For` and uses the direct socket peer IP for rate limits and free-tier memory namespacing.
+
+Enable `TRUST_PROXY` only when your deployment is actually behind a trusted reverse proxy/load balancer that rewrites forwarding headers. Common options:
+
+- `TRUST_PROXY=1` when exactly one trusted proxy sits in front of Node.js
+- `TRUST_PROXY=loopback` for local proxy setups
+- `TRUST_PROXY=<cidr>` (or comma-separated values) for explicit trusted proxy ranges
+
+When trust proxy is enabled, Express derives `req.ip` from `X-Forwarded-For` according to that trust policy. Ensure your edge proxy:
+
+1. Appends/sets a valid `X-Forwarded-For` chain
+2. Prevents direct untrusted clients from spoofing forwarding headers
+3. Forwards the real client address as the left-most IP in `X-Forwarded-For`
+
+If `X-Forwarded-For` is present while `TRUST_PROXY=false`, the server logs a defensive warning and ignores that header.
 
 ---
 
