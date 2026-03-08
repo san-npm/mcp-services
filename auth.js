@@ -6,12 +6,54 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from '
 import { dirname } from 'path';
 import { createPublicClient, http, formatUnits } from 'viem';
 import { base, celo } from 'viem/chains';
+import { getClientIp } from './ip.js';
+import { checkAndMaybeIncrement, cleanupMemoryRateStore } from './rate-store.js';
 
 // ─── Config ───
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
 const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005;
 const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
+const X402_TEST_MODE = process.env.X402_TEST_MODE === '1';
 const KEYS_FILE = process.env.KEYS_FILE || './data/api-keys.json';
+const X402_TX_CACHE_FILE = process.env.X402_TX_CACHE_FILE || './data/x402-tx-cache.json';
+const X402_MAX_TX_AGE_SECONDS = Math.max(60, parseInt(process.env.X402_MAX_TX_AGE_SECONDS || '86400', 10));
+const X402_TEST_MODE_EFFECTIVE = X402_TEST_MODE && process.env.NODE_ENV !== 'production';
+if (X402_TEST_MODE && !X402_TEST_MODE_EFFECTIVE) {
+  console.error('[auth] X402_TEST_MODE is ignored in production. On-chain verification remains enabled.');
+}
+const DEFAULT_ALLOW_APIKEY_QUERY = process.env.NODE_ENV !== 'production';
+const ALLOW_APIKEY_QUERY = process.env.ALLOW_APIKEY_QUERY
+  ? ['1', 'true', 'yes', 'on'].includes(process.env.ALLOW_APIKEY_QUERY.toLowerCase())
+  : DEFAULT_ALLOW_APIKEY_QUERY;
+const APIKEY_QUERY_DEPRECATION_MSG = 'Query API key auth via ?apikey is deprecated; use X-Api-Key header instead.';
+
+function getApiKeyFromRequest(req) {
+  const headerApiKey = req.headers['x-api-key'];
+  const queryApiKey = req.query.apikey;
+
+  if (headerApiKey) {
+    return { apiKey: headerApiKey, source: 'header' };
+  }
+
+  if (!queryApiKey) {
+    return { apiKey: null, source: null };
+  }
+
+  if (!ALLOW_APIKEY_QUERY) {
+    return {
+      apiKey: null,
+      source: 'query',
+      disabled: true,
+      error: 'Query API key auth is disabled. Use the X-Api-Key header.',
+    };
+  }
+
+  return {
+    apiKey: queryApiKey,
+    source: 'query',
+    warning: APIKEY_QUERY_DEPRECATION_MSG,
+  };
+}
 
 // ─── Persistent key storage ───
 let keyStore = {}; // { key: { customerId, subscriptionId, email, createdAt, active } }
@@ -112,17 +154,12 @@ export function getKeyStats() {
   };
 }
 
-// ─── In-memory stores (reset daily) ───
-const ipCounts = new Map();
-let lastReset = Date.now();
+// ─── Free-tier request window ───
+const FREE_WINDOW_MS = Math.max(60_000, parseInt(process.env.FREE_WINDOW_MS || String(24 * 60 * 60 * 1000), 10));
 
-function resetIfNeeded() {
-  const now = Date.now();
-  if (now - lastReset > 86400000) {
-    ipCounts.clear();
-    lastReset = now;
-  }
-}
+setInterval(() => {
+  cleanupMemoryRateStore();
+}, 10 * 60 * 1000).unref?.();
 
 // ─── x402 payment verification ───
 // Map of txHash -> timestamp for replay protection with TTL
@@ -148,13 +185,50 @@ const STABLECOIN_ADDRESSES = {
   },
 };
 
-function purgeExpiredTxHashes() {
-  const now = Date.now();
-  for (const [hash, ts] of verifiedTxHashes) {
-    if (now - ts > TX_HASH_TTL) verifiedTxHashes.delete(hash);
-    else break; // Map preserves insertion order; stop at first non-expired
+function loadVerifiedTxHashes() {
+  try {
+    if (!existsSync(X402_TX_CACHE_FILE)) return;
+    const parsed = JSON.parse(readFileSync(X402_TX_CACHE_FILE, 'utf-8'));
+    if (!Array.isArray(parsed)) return;
+    for (const item of parsed) {
+      if (!item || typeof item.hash !== 'string' || typeof item.ts !== 'number') continue;
+      if (!/^0x[a-fA-F0-9]{64}$/.test(item.hash)) continue;
+      verifiedTxHashes.set(item.hash.toLowerCase(), item.ts);
+    }
+  } catch (e) {
+    console.error('[auth] Failed to load x402 tx cache:', e.message);
   }
 }
+
+function saveVerifiedTxHashes() {
+  try {
+    const dir = dirname(X402_TX_CACHE_FILE);
+    if (dir && dir !== '.' && !existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const payload = JSON.stringify(Array.from(verifiedTxHashes.entries()).map(([hash, ts]) => ({ hash, ts })));
+    const tmp = X402_TX_CACHE_FILE + '.tmp';
+    writeFileSync(tmp, payload);
+    renameSync(tmp, X402_TX_CACHE_FILE);
+  } catch (e) {
+    console.error('[auth] Failed to save x402 tx cache:', e.message);
+  }
+}
+
+function purgeExpiredTxHashes() {
+  const now = Date.now();
+  let changed = false;
+  for (const [hash, ts] of verifiedTxHashes) {
+    if (now - ts > TX_HASH_TTL) {
+      verifiedTxHashes.delete(hash);
+      changed = true;
+    } else break; // Map preserves insertion order; stop at first non-expired
+  }
+  if (changed) saveVerifiedTxHashes();
+}
+
+loadVerifiedTxHashes();
+purgeExpiredTxHashes();
 
 async function verifyX402(req) {
   const paymentHeader = req.headers['x-payment'];
@@ -180,9 +254,26 @@ async function verifyX402(req) {
     purgeExpiredTxHashes();
     if (verifiedTxHashes.has(txHash)) return false;
 
+    // Optional local test mode (no RPC dependency): validate header shape + replay protection only.
+    // This is intended for offline/manual verification in constrained environments.
+    if (X402_TEST_MODE_EFFECTIVE) {
+      verifiedTxHashes.set(txHash, Date.now());
+      if (verifiedTxHashes.size > TX_HASH_MAX) {
+        const first = verifiedTxHashes.keys().next().value;
+        verifiedTxHashes.delete(first);
+      }
+      saveVerifiedTxHashes();
+      return true;
+    }
+
     // On-chain verification — fetch the transaction receipt
     const receipt = await client.getTransactionReceipt({ hash: txHash });
     if (!receipt || receipt.status !== 'success') return false;
+
+    // Freshness check: reject stale payments
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    const txAgeSeconds = Math.floor(Date.now() / 1000) - Number(block.timestamp);
+    if (txAgeSeconds > X402_MAX_TX_AGE_SECONDS) return false;
 
     // Verify the transaction sent value to our receiver address
     // Check for ERC20 Transfer events to receiver with sufficient amount
@@ -218,6 +309,7 @@ async function verifyX402(req) {
       const first = verifiedTxHashes.keys().next().value;
       verifiedTxHashes.delete(first);
     }
+    saveVerifiedTxHashes();
 
     return true;
   } catch {
@@ -232,14 +324,31 @@ export function getRequestLog() {
   return { ...requestLog };
 }
 
+export function getX402PaymentMetadata() {
+  return {
+    version: '1',
+    price: X402_PRICE_USD,
+    currency: 'USD',
+    receiver: X402_RECEIVER,
+    networks: ['base', 'celo'],
+    accepts: ['USDC', 'USDT'],
+    description: 'Pay per API call with stablecoins'
+  };
+}
+
 // ─── MCP auth helper (reuses same tiers as REST) ───
 export async function mcpAuth(req, { countUsage = true } = {}) {
-  // 1. Check API key (via query param or header)
-  const apiKey = req.query.apikey || req.headers['x-api-key'];
-  if (apiKey) {
-    if (isValidKey(apiKey)) {
+  // 1. Check API key (prefer header; query support is deprecated and optional)
+  const keyAuth = getApiKeyFromRequest(req);
+  if (keyAuth.disabled) {
+    requestLog.blocked++;
+    return { tier: null, error: keyAuth.error };
+  }
+
+  if (keyAuth.apiKey) {
+    if (isValidKey(keyAuth.apiKey)) {
       requestLog.apikey++;
-      return { tier: 'apikey', apiKey };
+      return { tier: 'apikey', apiKey: keyAuth.apiKey, warning: keyAuth.warning || null };
     }
     return { tier: null, error: 'Invalid or revoked API key' };
   }
@@ -254,28 +363,17 @@ export async function mcpAuth(req, { countUsage = true } = {}) {
   }
 
   // 3. Free tier — IP rate limit
-  resetIfNeeded();
-  const ip = req.ip || 'unknown';
+  const ip = getClientIp(req);
+  const rateKey = `free:${ip}`;
+  const rate = await checkAndMaybeIncrement(rateKey, FREE_LIMIT, FREE_WINDOW_MS, countUsage);
 
-  if (countUsage) {
-    const count = (ipCounts.get(ip) || 0) + 1;
-    ipCounts.set(ip, count);
-
-    if (count > FREE_LIMIT) {
-      requestLog.blocked++;
-      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
-    }
-
-    requestLog.free++;
-  } else {
-    // Auth-only check (e.g. SSE handshake) — verify limit without incrementing
-    const current = ipCounts.get(ip) || 0;
-    if (current >= FREE_LIMIT) {
-      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
-    }
+  if (!rate.allowed) {
+    requestLog.blocked++;
+    return { tier: null, error: `Free limit reached (${FREE_LIMIT}/${Math.round(FREE_WINDOW_MS / 3600000)}h). Send X-Api-Key header for unlimited access.` };
   }
 
-  return { tier: 'free', ip };
+  if (countUsage) requestLog.free++;
+  return { tier: 'free', ip, remaining: rate.remaining };
 }
 
 // ─── Middleware ───
@@ -302,22 +400,27 @@ export async function authMiddleware(req, res, next) {
     requestLog.blocked++;
     return res.status(402).json({
       error: 'Payment required',
-      x402: {
-        version: '1',
-        price: X402_PRICE_USD,
-        currency: 'USD',
-        receiver: X402_RECEIVER,
-        networks: ['base', 'celo'],
-        accepts: ['USDC', 'USDT'],
-        description: 'Pay per API call with stablecoins'
-      }
+      x402: getX402PaymentMetadata()
     });
   }
 
-  // 2. Check API key
-  const apiKey = req.headers['x-api-key'] || req.query.apikey;
-  if (apiKey) {
-    if (isValidKey(apiKey)) {
+  // 2. Check API key (prefer header; query support is deprecated and optional)
+  const keyAuth = getApiKeyFromRequest(req);
+  if (keyAuth.disabled) {
+    requestLog.blocked++;
+    return res.status(400).json({
+      error: keyAuth.error,
+      code: 'QUERY_APIKEY_DISABLED',
+    });
+  }
+
+  if (keyAuth.warning) {
+    res.setHeader('Warning', `299 - "${keyAuth.warning}"`);
+    res.setHeader('Deprecation', 'true');
+  }
+
+  if (keyAuth.apiKey) {
+    if (isValidKey(keyAuth.apiKey)) {
       req.authTier = 'apikey';
       requestLog.apikey++;
       return next();
@@ -327,24 +430,24 @@ export async function authMiddleware(req, res, next) {
   }
 
   // 3. Free tier — IP rate limit
-  resetIfNeeded();
-  const ip = req.ip; // trust proxy is configured in server.js
-  const count = (ipCounts.get(ip) || 0) + 1;
-  ipCounts.set(ip, count);
+  const ip = getClientIp(req);
+  const rate = await checkAndMaybeIncrement(`free:${ip}`, FREE_LIMIT, FREE_WINDOW_MS, true);
 
-  if (count > FREE_LIMIT) {
+  if (!rate.allowed) {
     requestLog.blocked++;
+    const x402 = getX402PaymentMetadata();
     return res.status(429).json({
-      error: 'Daily free limit reached',
+      error: 'Free limit reached',
       limit: FREE_LIMIT,
+      windowMs: FREE_WINDOW_MS,
       upgrade: {
         stripe: 'POST /billing/checkout for unlimited API key ($9/mo)',
         x402: {
-          price: X402_PRICE_USD,
-          currency: 'USD',
-          receiver: X402_RECEIVER,
-          networks: ['base', 'celo'],
-          accepts: ['USDC', 'USDT']
+          price: x402.price,
+          currency: x402.currency,
+          receiver: x402.receiver,
+          networks: x402.networks,
+          accepts: x402.accepts
         }
       }
     });
@@ -353,7 +456,7 @@ export async function authMiddleware(req, res, next) {
   req.authTier = 'free';
   requestLog.free++;
   res.setHeader('X-RateLimit-Limit', FREE_LIMIT);
-  res.setHeader('X-RateLimit-Remaining', Math.max(0, FREE_LIMIT - count));
+  res.setHeader('X-RateLimit-Remaining', Math.max(0, rate.remaining));
   next();
 }
 
@@ -395,15 +498,16 @@ export function adminRoutes(app) {
     res.json({ revoked });
   });
 
-  app.get('/admin/stats', (req, res) => {
+  app.get('/admin/stats', async (req, res) => {
     if (!checkAdminAuth(req)) return res.status(401).json({ error: 'Unauthorized' });
-    resetIfNeeded();
     res.json({
-      freeUsers: ipCounts.size,
-      totalFreeRequests: [...ipCounts.values()].reduce((a, b) => a + b, 0),
+      freeUsers: null,
+      totalFreeRequests: null,
+      notes: 'Using rolling-window rate store (memory/redis). Per-IP aggregates are not enumerated.',
       keys: getKeyStats(),
       requests: getRequestLog(),
       freeLimit: FREE_LIMIT,
+      freeWindowMs: FREE_WINDOW_MS,
       x402Price: X402_PRICE_USD,
     });
   });

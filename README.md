@@ -110,12 +110,15 @@ Three tiers -- use whichever fits:
 | Tier | How | Limit | Cost |
 |------|-----|-------|------|
 | **Free** | No auth needed | 10 calls/day per IP | $0 |
-| **API Key** | `X-Api-Key` header or `?apikey=` query param | Unlimited | $9/mo |
+| **API Key** | `X-Api-Key` header | Unlimited | $9/mo |
 | **x402** | `X-Payment` header | Pay per call | $0.005/call |
 
 ### API Key
 
 Subscribe via Stripe to get an unlimited API key:
+
+For migration only, query-string API keys (`?apikey=`) can be temporarily re-enabled with `ALLOW_APIKEY_QUERY=true`. This mode is deprecated; prefer `X-Api-Key`.
+
 
 ```bash
 # 1. Create checkout session
@@ -195,17 +198,64 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `CHROMIUM_PATH` | `/usr/bin/chromium-browser` | Path to Chromium |
 | `MAX_BROWSERS` | `3` | Max concurrent browser instances |
 | `MAX_SSE_SESSIONS` | `50` | Max MCP SSE sessions |
-| `FREE_DAILY_LIMIT` | `10` | Free tier daily limit |
+| `MAX_SSE_PER_IP` | `5` | Max concurrent SSE sessions per client IP |
+| `SSE_CONNECT_MAX_PER_WINDOW` | `30` | Max SSE connection attempts per IP per window |
+| `SSE_CONNECT_WINDOW_MS` | `60000` | SSE connect rate-limit window in ms |
+| `SSE_ALLOWED_HOSTS` | -- | Comma-separated allowlist for `Host` header on `/mcp/sse` + `/mcp/messages` (e.g. `mcp.example.com,localhost`) |
+| `SSE_ALLOWED_ORIGINS` | -- | Optional comma-separated allowlist for `Origin` header (full origins like `https://app.example.com`) |
+| `FREE_DAILY_LIMIT` | `10` | Free tier request limit |
+| `FREE_WINDOW_MS` | `86400000` | Free-tier rate-limit window in ms |
+| `REDIS_URL` | -- | Optional Redis backend for shared/distributed rate-limits |
 | `API_KEYS` | -- | Comma-separated valid API keys |
+| `ALLOW_APIKEY_QUERY` | `true` in non-production, `false` in production | Allow deprecated `?apikey=` auth during migration |
 | `ADMIN_SECRET` | -- | Secret for admin endpoints |
 | `STRIPE_SK` | -- | Stripe API key for Pro subscriptions |
 | `STRIPE_WEBHOOK_SECRET` | -- | Stripe webhook signing secret |
+| `STRIPE_WEBHOOK_IP_ALLOWLIST` | -- | Optional CSV allowlist for webhook source IPs |
+| `CHECKOUT_LIMIT_PER_HOUR` | `5` | Per-IP Stripe checkout creation limit |
 | `X402_PRICE_USD` | `0.005` | x402 price per call |
 | `X402_RECEIVER` | -- | x402 payment receiver address |
+| `X402_MAX_TX_AGE_SECONDS` | `86400` | Maximum accepted payment tx age in seconds (stale txs are rejected) |
+| `X402_TX_CACHE_FILE` | `./data/x402-tx-cache.json` | Persistent replay-protection cache for used x402 tx hashes |
+| `X402_TEST_MODE` | `0` | Set to `1` only for local/offline testing; ignored in production |
 | `MEMORY_DB_PATH` | `./data/memory.db` | SQLite memory database path |
 | `VT_API_KEY` | -- | VirusTotal API key (free: 4/min, 500/day) |
 | `ABUSEIPDB_API_KEY` | -- | AbuseIPDB API key (free: 1000/day) |
 | `ETHERSCAN_API_KEY` | -- | Etherscan API key (free: 5/sec) |
+| `TRUST_PROXY` | `false` | Express trust proxy setting (`false`, `true`, hop count like `1`, or subnet names/CIDRs like `loopback`/`10.0.0.0/8`) |
+
+---
+
+## Reverse proxy & client IP configuration
+
+`mcp-services` defaults to `TRUST_PROXY=false`, which means the app ignores `X-Forwarded-For` and uses the direct socket peer IP for rate limits and free-tier memory namespacing.
+
+Enable `TRUST_PROXY` only when your deployment is actually behind a trusted reverse proxy/load balancer that rewrites forwarding headers. Common options:
+
+- `TRUST_PROXY=1` when exactly one trusted proxy sits in front of Node.js
+- `TRUST_PROXY=loopback` for local proxy setups
+- `TRUST_PROXY=<cidr>` (or comma-separated values) for explicit trusted proxy ranges
+
+When trust proxy is enabled, Express derives `req.ip` from `X-Forwarded-For` according to that trust policy. Ensure your edge proxy:
+
+1. Appends/sets a valid `X-Forwarded-For` chain
+2. Prevents direct untrusted clients from spoofing forwarding headers
+3. Forwards the real client address as the left-most IP in `X-Forwarded-For`
+
+If `X-Forwarded-For` is present while `TRUST_PROXY=false`, the server logs a defensive warning and ignores that header.
+
+For production, set `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS` to strict, explicit values (only your public MCP domain and trusted app origins). Avoid wildcards or broad internal host lists.
+
+## Deployment hardening checklist (recommended)
+
+- Set `NODE_ENV=production`
+- Keep `ALLOW_APIKEY_QUERY=false` (header auth only)
+- Configure `TRUST_PROXY` correctly for your network path (do not blindly set `true`)
+- Set strict `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS`
+- Rotate `ADMIN_SECRET` and Stripe keys periodically
+- Keep `X402_TEST_MODE=0` in production (enforced by server)
+- Persist `KEYS_FILE`, `MEMORY_DB_PATH`, and `X402_TX_CACHE_FILE` on durable storage
+- Run `npm audit` in CI and fail builds on high/critical vulnerabilities
 
 ---
 

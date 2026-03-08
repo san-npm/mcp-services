@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { getClientIp } from './ip.js';
 
 const DB_PATH = process.env.MEMORY_DB_PATH || './data/memory.db';
 
@@ -86,7 +87,7 @@ export function resolveNamespace(req, namespace) {
     return `x402:${namespace}`;
   }
   // Free tier — scope by IP
-  const ip = req.ip || 'unknown';
+  const ip = getClientIp(req);
   return `free:${ip}:${namespace}`;
 }
 

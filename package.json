@@ -18,11 +18,15 @@
     "docx": "^9.6.0",
     "dotenv": "^17.3.1",
     "express": "^4.21.0",
+    "ioredis": "^5.8.1",
     "pdfjs-dist": "^5.5.207",
     "puppeteer-core": "^24.0.0",
     "stripe": "^20.4.0",
     "viem": "^2.21.0",
     "whois-json": "^2.0.4"
+  },
+  "overrides": {
+    "express-rate-limit": "8.2.2"
   },
   "license": "MIT",
   "repository": {

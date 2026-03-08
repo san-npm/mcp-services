@@ -5,6 +5,8 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { generateApiKey, revokeBySubscription, revokeByCustomer } from './auth.js';
 import express from 'express';
+import { getClientIp } from './ip.js';
+import { checkAndMaybeIncrement } from './rate-store.js';
 
 let stripe = null;
 function getStripe() {
@@ -16,6 +18,12 @@ function getStripe() {
 }
 const PRICE_MONTHLY = 900; // $9.00 in cents
 const DOMAIN = process.env.DOMAIN || 'https://mcp.skills.ws';
+const CHECKOUT_LIMIT_PER_HOUR = Math.max(1, parseInt(process.env.CHECKOUT_LIMIT_PER_HOUR || '5', 10));
+const CHECKOUT_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const STRIPE_WEBHOOK_IP_ALLOWLIST = (process.env.STRIPE_WEBHOOK_IP_ALLOWLIST || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 let priceId = null;
 
@@ -54,28 +62,15 @@ async function ensureProduct() {
 }
 
 // ─── Rate limit checkout creation ───
-const checkoutLimiter = new Map();
-let lastCheckoutCleanup = Date.now();
+async function checkCheckoutRate(ip) {
+  const key = `checkout:${ip}`;
+  const rate = await checkAndMaybeIncrement(key, CHECKOUT_LIMIT_PER_HOUR, CHECKOUT_LIMIT_WINDOW_MS, true);
+  return rate.allowed;
+}
 
-function checkCheckoutRate(ip) {
-  const now = Date.now();
-
-  // Purge stale entries every hour
-  if (now - lastCheckoutCleanup > 3600000) {
-    for (const [key, attempts] of checkoutLimiter) {
-      const recent = attempts.filter(t => now - t < 3600000);
-      if (recent.length === 0) checkoutLimiter.delete(key);
-      else checkoutLimiter.set(key, recent);
-    }
-    lastCheckoutCleanup = now;
-  }
-
-  const attempts = checkoutLimiter.get(ip) || [];
-  const recent = attempts.filter(t => now - t < 3600000); // last hour
-  if (recent.length >= 5) return false; // max 5 checkouts per hour per IP
-  recent.push(now);
-  checkoutLimiter.set(ip, recent);
-  return true;
+function isAllowedWebhookIp(ip) {
+  if (!STRIPE_WEBHOOK_IP_ALLOWLIST.length) return true;
+  return STRIPE_WEBHOOK_IP_ALLOWLIST.includes(ip);
 }
 
 // ─── Routes ───
@@ -84,6 +79,12 @@ export function stripeRoutes(app) {
   // IMPORTANT: Webhook needs raw body for signature verification
   // Must be registered BEFORE express.json() or with its own raw parser
   app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const webhookIp = getClientIp(req);
+    if (!isAllowedWebhookIp(webhookIp)) {
+      console.warn('[stripe] webhook blocked by IP allowlist:', webhookIp);
+      return res.status(403).send('Forbidden');
+    }
+
     const sig = req.headers['stripe-signature'];
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -135,8 +136,8 @@ export function stripeRoutes(app) {
 
   // Create checkout session (rate limited)
   app.post('/billing/checkout', async (req, res) => {
-    const ip = req.ip;
-    if (!checkCheckoutRate(ip)) {
+    const ip = getClientIp(req);
+    if (!await checkCheckoutRate(ip)) {
       return res.status(429).json({ error: 'Too many checkout attempts. Try again later.' });
     }
 

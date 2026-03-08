@@ -12,12 +12,14 @@ import { spawn } from 'child_process';
 import { resolve, resolve4 } from 'dns/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { authMiddleware, adminRoutes, mcpAuth } from './auth.js';
+import { authMiddleware, adminRoutes, mcpAuth, getX402PaymentMetadata } from './auth.js';
 import { stripeRoutes } from './stripe.js';
 import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js';
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
 import { memoryStore, memoryGet, memorySearch, memoryList, memoryDelete, resolveNamespace } from './memory.js';
 import { urlScan, walletCheck, contractScan, emailHeaders, threatIntel, headerAudit, vulnHeaders } from './security.js';
+import { parseTrustProxyConfig, shouldWarnOnForwardedFor, getClientIp } from './ip.js';
+import { checkAndMaybeIncrement } from './rate-store.js';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 
@@ -27,9 +29,89 @@ const __dirname = dirname(__filename);
 const PORT = process.env.PORT || 3100;
 const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
 const MAX_SSE_SESSIONS = parseInt(process.env.MAX_SSE_SESSIONS, 10) || 50;
+const MAX_SSE_PER_IP = Math.max(1, parseInt(process.env.MAX_SSE_PER_IP || '5', 10));
+const SSE_CONNECT_MAX_PER_WINDOW = Math.max(1, parseInt(process.env.SSE_CONNECT_MAX_PER_WINDOW || '30', 10));
+const SSE_CONNECT_WINDOW_MS = Math.max(10_000, parseInt(process.env.SSE_CONNECT_WINDOW_MS || '60000', 10));
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB for html2md/ocr text
+const SSE_ALLOWED_HOSTS = parseCsvEnv('SSE_ALLOWED_HOSTS');
+const SSE_ALLOWED_ORIGINS = parseCsvEnv('SSE_ALLOWED_ORIGINS');
 let activeBrowsers = 0;
+
+function parseCsvEnv(name) {
+  const value = process.env[name];
+  if (!value) return null;
+  const parsed = value
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean);
+  return parsed.length ? parsed : null;
+}
+
+
+function getRequestHost(req) {
+  const rawHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+  if (!rawHost || typeof rawHost !== 'string') return null;
+  return rawHost.trim().toLowerCase();
+}
+
+function getOrigin(req) {
+  const rawOrigin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+  if (!rawOrigin || typeof rawOrigin !== 'string') return null;
+  return rawOrigin.trim().toLowerCase();
+}
+
+function isAllowedHost(host) {
+  if (!SSE_ALLOWED_HOSTS) return true;
+  const hostNoPort = host.split(':')[0];
+  return SSE_ALLOWED_HOSTS.includes(host) || SSE_ALLOWED_HOSTS.includes(hostNoPort);
+}
+
+function isAllowedOrigin(origin) {
+  if (!SSE_ALLOWED_ORIGINS || !origin) return true;
+  try {
+    const parsed = new URL(origin);
+    return SSE_ALLOWED_ORIGINS.includes(origin) || SSE_ALLOWED_ORIGINS.includes(parsed.origin.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function validateSseRequest(req) {
+  const host = getRequestHost(req);
+  if (!host) {
+    return { ok: false, status: 400, reason: 'Missing Host header' };
+  }
+  if (!isAllowedHost(host)) {
+    return {
+      ok: false,
+      status: 403,
+      reason: `Host header is not allowed: ${host}`,
+      details: { host, allowedHosts: SSE_ALLOWED_HOSTS },
+    };
+  }
+
+  const origin = getOrigin(req);
+  if (SSE_ALLOWED_ORIGINS && origin && !isAllowedOrigin(origin)) {
+    return {
+      ok: false,
+      status: 403,
+      reason: `Origin header is not allowed: ${origin}`,
+      details: { origin, allowedOrigins: SSE_ALLOWED_ORIGINS },
+    };
+  }
+
+  if (SSE_ALLOWED_ORIGINS && !origin) {
+    return {
+      ok: false,
+      status: 403,
+      reason: 'Missing Origin header while SSE_ALLOWED_ORIGINS is configured',
+      details: { allowedOrigins: SSE_ALLOWED_ORIGINS },
+    };
+  }
+
+  return { ok: true };
+}
 
 // ─── PDF to DOCX conversion helper ───
 const MAX_PDF_PAGES = 200;
@@ -252,6 +334,22 @@ function clampInt(val, fallback, min, max) {
   return Math.min(Math.max(n, min), max);
 }
 
+function isBillableMcpMethod(method) {
+  return method === 'tools/call';
+}
+
+function hasBillableMcpMessage(payload) {
+  const messages = Array.isArray(payload) ? payload : [payload];
+  return messages.some(m => m && typeof m === 'object' && isBillableMcpMethod(m.method));
+}
+
+function x402PaymentRequiredResponse(res) {
+  return res.status(402).json({
+    error: 'Payment required',
+    x402: getX402PaymentMetadata(),
+  });
+}
+
 // Async openssl — non-blocking alternative to spawnSync
 // Domain args are validated by validateDomain() (requires alphanumeric first char, blocking --flag).
 function runOpenssl(args, input = '', timeout = 10000) {
@@ -294,7 +392,18 @@ function parseCertOutput(raw) {
 
 // ─── Express API ───
 const app = express();
-app.set('trust proxy', 1); // Trust first proxy — required for accurate req.ip behind reverse proxy
+app.disable('x-powered-by');
+const trustProxyConfig = parseTrustProxyConfig(process.env.TRUST_PROXY);
+app.set('trust proxy', trustProxyConfig.expressValue);
+app.locals.trustProxyEnabled = trustProxyConfig.enabled;
+console.log(`[proxy] trust proxy=${String(trustProxyConfig.source)} (enabled=${trustProxyConfig.enabled})`);
+
+app.use((req, _, next) => {
+  if (shouldWarnOnForwardedFor(req)) {
+    console.warn(`[proxy] Received X-Forwarded-For while trust proxy is disabled. Ignoring header for ${req.method} ${req.originalUrl}.`);
+  }
+  next();
+});
 
 // Stripe billing routes FIRST (webhook needs raw body before express.json parses it)
 stripeRoutes(app);
@@ -1337,10 +1446,29 @@ const transports = {};
 // Security invariant: sessionId alone is never sufficient authorization.
 // Every /mcp/messages request must still satisfy the auth context recorded here.
 const sessionAuth = {};
+const sessionIp = {};
+const activeSsePerIp = new Map();
 
 app.get('/mcp/sse', async (req, res) => {
   if (Object.keys(transports).length >= MAX_SSE_SESSIONS) {
     return res.status(429).json({ error: 'Too many active sessions' });
+  }
+
+  const clientIp = getClientIp(req);
+  const currentIpSessions = activeSsePerIp.get(clientIp) || 0;
+  if (currentIpSessions >= MAX_SSE_PER_IP) {
+    return res.status(429).json({ error: 'Too many active sessions for this IP' });
+  }
+
+  const connectRate = await checkAndMaybeIncrement(`sse:connect:${clientIp}`, SSE_CONNECT_MAX_PER_WINDOW, SSE_CONNECT_WINDOW_MS, true);
+  if (!connectRate.allowed) {
+    return res.status(429).json({ error: 'Too many SSE connection attempts. Slow down.' });
+  }
+
+  const validation = validateSseRequest(req);
+  if (!validation.ok) {
+    console.warn('[mcp/sse] blocked request:', validation.reason, validation.details || '');
+    return res.status(validation.status).json({ error: 'SSE request rejected', reason: validation.reason, ...validation.details });
   }
 
   // Authenticate the MCP connection — don't count against free limit (only tool calls count)
@@ -1349,15 +1477,28 @@ app.get('/mcp/sse', async (req, res) => {
     return res.status(auth.error?.includes('API key') ? 401 : 429).json({ error: auth.error });
   }
 
-  const transport = new SSEServerTransport('/mcp/messages', res);
+  const transport = new SSEServerTransport('/mcp/messages', res, {
+    enableDnsRebindingProtection: true,
+    allowedHosts: SSE_ALLOWED_HOSTS || undefined,
+    allowedOrigins: SSE_ALLOWED_ORIGINS || undefined,
+  });
   transports[transport.sessionId] = transport;
   sessionAuth[transport.sessionId] = auth;
+  sessionIp[transport.sessionId] = clientIp;
+  activeSsePerIp.set(clientIp, currentIpSessions + 1);
 
   const server = createMcpServer();
 
   const cleanup = () => {
     delete transports[transport.sessionId];
     delete sessionAuth[transport.sessionId];
+    const ip = sessionIp[transport.sessionId];
+    delete sessionIp[transport.sessionId];
+    if (ip) {
+      const next = Math.max(0, (activeSsePerIp.get(ip) || 1) - 1);
+      if (next === 0) activeSsePerIp.delete(ip);
+      else activeSsePerIp.set(ip, next);
+    }
     server.close().catch(() => {});
   };
   res.on('close', cleanup);
@@ -1373,47 +1514,48 @@ app.get('/mcp/sse', async (req, res) => {
 });
 
 app.post('/mcp/messages', async (req, res) => {
+  const validation = validateSseRequest(req);
+  if (!validation.ok) {
+    console.warn('[mcp/messages] blocked request:', validation.reason, validation.details || '');
+    return res.status(validation.status).json({ error: 'SSE request rejected', reason: validation.reason, ...validation.details });
+  }
+
   const sessionId = Array.isArray(req.query.sessionId) ? req.query.sessionId[0] : req.query.sessionId;
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
 
+  // Bill only tool calls; initialize/ping/notifications remain non-billable.
   const auth = sessionAuth[sessionId];
+  const isBillable = hasBillableMcpMessage(req.body);
+
   if (!auth?.tier) {
     return res.status(401).json({ error: 'Session auth mismatch' });
   }
 
-  const message = req.body;
-  const messages = Array.isArray(message) ? message : [message];
-  const isToolCall = messages.some(m => m && typeof m === 'object' && m.method === 'tools/call');
-
   if (auth.tier === 'apikey') {
     const requestApiKey = req.headers['x-api-key'] || req.query.apikey;
-    if (!requestApiKey) {
-      return res.status(401).json({ error: 'Session auth mismatch' });
-    }
-    if (requestApiKey !== auth.apiKey) {
-      return res.status(403).json({ error: 'Session auth mismatch' });
-    }
+    if (!requestApiKey) return res.status(401).json({ error: 'Session auth mismatch' });
+    if (requestApiKey !== auth.apiKey) return res.status(403).json({ error: 'Session auth mismatch' });
   }
 
-  if (auth.tier === 'x402' && isToolCall) {
-    const recheck = await mcpAuth(req, { countUsage: false });
-    if (recheck.tier !== 'x402') {
-      return res.status(402).json({ error: 'Session auth mismatch' });
-    }
-  }
-
-  // For free tier, count only tool calls (initialize/ping/notifications should not consume quota).
   if (auth.tier === 'free') {
-    if (!req.ip || req.ip !== auth.ip) {
-      return res.status(req.ip ? 403 : 401).json({ error: 'Session auth mismatch' });
+    const requestIp = getClientIp(req);
+    if (!requestIp || requestIp !== auth.ip) {
+      return res.status(requestIp ? 403 : 401).json({ error: 'Session auth mismatch' });
     }
   }
 
-  if (auth.tier === 'free' && isToolCall) {
+  if (isBillable && auth.tier === 'free') {
     const recheck = await mcpAuth(req, { countUsage: true });
     if (recheck.tier !== 'free') {
       return res.status(429).json({ error: recheck.error });
+    }
+  }
+
+  if (isBillable && auth.tier === 'x402') {
+    const recheck = await mcpAuth(req, { countUsage: true });
+    if (!recheck.tier || recheck.tier !== 'x402') {
+      return x402PaymentRequiredResponse(res);
     }
   }
 
@@ -1447,7 +1589,9 @@ async function shutdown(signal) {
     try { transport.close?.(); } catch {}
     delete transports[id];
     delete sessionAuth[id];
+    delete sessionIp[id];
   }
+  activeSsePerIp.clear();
   console.log('[shutdown] SSE sessions closed');
 
   // Close SQLite database (imported from memory.js)
