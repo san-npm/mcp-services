@@ -12,6 +12,7 @@ import { getClientIp } from './ip.js';
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
 const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005;
 const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
+const X402_TEST_MODE = process.env.X402_TEST_MODE === '1';
 const KEYS_FILE = process.env.KEYS_FILE || './data/api-keys.json';
 const DEFAULT_ALLOW_APIKEY_QUERY = process.env.NODE_ENV !== 'production';
 const ALLOW_APIKEY_QUERY = process.env.ALLOW_APIKEY_QUERY
@@ -213,6 +214,17 @@ async function verifyX402(req) {
     // Replay protection — purge expired, then check
     purgeExpiredTxHashes();
     if (verifiedTxHashes.has(txHash)) return false;
+
+    // Optional local test mode (no RPC dependency): validate header shape + replay protection only.
+    // This is intended for offline/manual verification in constrained environments.
+    if (X402_TEST_MODE) {
+      verifiedTxHashes.set(txHash, Date.now());
+      if (verifiedTxHashes.size > TX_HASH_MAX) {
+        const first = verifiedTxHashes.keys().next().value;
+        verifiedTxHashes.delete(first);
+      }
+      return true;
+    }
 
     // On-chain verification — fetch the transaction receipt
     const receipt = await client.getTransactionReceipt({ hash: txHash });
