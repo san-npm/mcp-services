@@ -16,6 +16,10 @@ const X402_TEST_MODE = process.env.X402_TEST_MODE === '1';
 const KEYS_FILE = process.env.KEYS_FILE || './data/api-keys.json';
 const X402_TX_CACHE_FILE = process.env.X402_TX_CACHE_FILE || './data/x402-tx-cache.json';
 const X402_MAX_TX_AGE_SECONDS = Math.max(60, parseInt(process.env.X402_MAX_TX_AGE_SECONDS || '86400', 10));
+const X402_TEST_MODE_EFFECTIVE = X402_TEST_MODE && process.env.NODE_ENV !== 'production';
+if (X402_TEST_MODE && !X402_TEST_MODE_EFFECTIVE) {
+  console.error('[auth] X402_TEST_MODE is ignored in production. On-chain verification remains enabled.');
+}
 const DEFAULT_ALLOW_APIKEY_QUERY = process.env.NODE_ENV !== 'production';
 const ALLOW_APIKEY_QUERY = process.env.ALLOW_APIKEY_QUERY
   ? ['1', 'true', 'yes', 'on'].includes(process.env.ALLOW_APIKEY_QUERY.toLowerCase())
@@ -256,7 +260,7 @@ async function verifyX402(req) {
 
     // Optional local test mode (no RPC dependency): validate header shape + replay protection only.
     // This is intended for offline/manual verification in constrained environments.
-    if (X402_TEST_MODE) {
+    if (X402_TEST_MODE_EFFECTIVE) {
       verifiedTxHashes.set(txHash, Date.now());
       if (verifiedTxHashes.size > TX_HASH_MAX) {
         const first = verifiedTxHashes.keys().next().value;

@@ -208,7 +208,9 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `STRIPE_WEBHOOK_SECRET` | -- | Stripe webhook signing secret |
 | `X402_PRICE_USD` | `0.005` | x402 price per call |
 | `X402_RECEIVER` | -- | x402 payment receiver address |
-| `X402_TEST_MODE` | `0` | Set to `1` only for local/offline testing to skip on-chain verification while keeping replay protection |
+| `X402_MAX_TX_AGE_SECONDS` | `86400` | Maximum accepted payment tx age in seconds (stale txs are rejected) |
+| `X402_TX_CACHE_FILE` | `./data/x402-tx-cache.json` | Persistent replay-protection cache for used x402 tx hashes |
+| `X402_TEST_MODE` | `0` | Set to `1` only for local/offline testing; ignored in production |
 | `MEMORY_DB_PATH` | `./data/memory.db` | SQLite memory database path |
 | `VT_API_KEY` | -- | VirusTotal API key (free: 4/min, 500/day) |
 | `ABUSEIPDB_API_KEY` | -- | AbuseIPDB API key (free: 1000/day) |
@@ -236,6 +238,17 @@ When trust proxy is enabled, Express derives `req.ip` from `X-Forwarded-For` acc
 If `X-Forwarded-For` is present while `TRUST_PROXY=false`, the server logs a defensive warning and ignores that header.
 
 For production, set `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS` to strict, explicit values (only your public MCP domain and trusted app origins). Avoid wildcards or broad internal host lists.
+
+## Deployment hardening checklist (recommended)
+
+- Set `NODE_ENV=production`
+- Keep `ALLOW_APIKEY_QUERY=false` (header auth only)
+- Configure `TRUST_PROXY` correctly for your network path (do not blindly set `true`)
+- Set strict `SSE_ALLOWED_HOSTS` and `SSE_ALLOWED_ORIGINS`
+- Rotate `ADMIN_SECRET` and Stripe keys periodically
+- Keep `X402_TEST_MODE=0` in production (enforced by server)
+- Persist `KEYS_FILE`, `MEMORY_DB_PATH`, and `X402_TX_CACHE_FILE` on durable storage
+- Run `npm audit` in CI and fail builds on high/critical vulnerabilities
 
 ---
 
