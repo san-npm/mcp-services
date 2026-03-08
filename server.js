@@ -1371,13 +1371,16 @@ app.get('/mcp/sse', async (req, res) => {
 });
 
 app.post('/mcp/messages', async (req, res) => {
-  const sessionId = req.query.sessionId;
+  const sessionId = Array.isArray(req.query.sessionId) ? req.query.sessionId[0] : req.query.sessionId;
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
 
-  // For free tier, count each tool call against the daily limit
+  // For free tier, count only tool calls (initialize/ping/notifications should not consume quota).
   const auth = sessionAuth[sessionId];
-  if (auth?.tier === 'free') {
+  const message = req.body;
+  const messages = Array.isArray(message) ? message : [message];
+  const isToolCall = messages.some(m => m && typeof m === 'object' && m.method === 'tools/call');
+  if (auth?.tier === 'free' && isToolCall) {
     const recheck = await mcpAuth(req, { countUsage: true });
     if (!recheck.tier) {
       return res.status(429).json({ error: recheck.error });
@@ -1385,7 +1388,9 @@ app.post('/mcp/messages', async (req, res) => {
   }
 
   try {
-    await transport.handlePostMessage(req, res);
+    // express.json() has already consumed req stream globally, so pass parsed body
+    // to the SDK transport (otherwise it tries to re-read the drained stream).
+    await transport.handlePostMessage(req, res, req.body);
   } catch (err) {
     console.error('[mcp/messages]', err);
     if (!res.headersSent) res.status(500).json({ error: 'Message handling failed' });
