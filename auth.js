@@ -232,6 +232,18 @@ export function getRequestLog() {
   return { ...requestLog };
 }
 
+export function getX402PaymentMetadata() {
+  return {
+    version: '1',
+    price: X402_PRICE_USD,
+    currency: 'USD',
+    receiver: X402_RECEIVER,
+    networks: ['base', 'celo'],
+    accepts: ['USDC', 'USDT'],
+    description: 'Pay per API call with stablecoins'
+  };
+}
+
 // ─── MCP auth helper (reuses same tiers as REST) ───
 export async function mcpAuth(req, { countUsage = true } = {}) {
   // 1. Check API key (via query param or header)
@@ -302,15 +314,7 @@ export async function authMiddleware(req, res, next) {
     requestLog.blocked++;
     return res.status(402).json({
       error: 'Payment required',
-      x402: {
-        version: '1',
-        price: X402_PRICE_USD,
-        currency: 'USD',
-        receiver: X402_RECEIVER,
-        networks: ['base', 'celo'],
-        accepts: ['USDC', 'USDT'],
-        description: 'Pay per API call with stablecoins'
-      }
+      x402: getX402PaymentMetadata()
     });
   }
 
@@ -334,17 +338,18 @@ export async function authMiddleware(req, res, next) {
 
   if (count > FREE_LIMIT) {
     requestLog.blocked++;
+    const x402 = getX402PaymentMetadata();
     return res.status(429).json({
       error: 'Daily free limit reached',
       limit: FREE_LIMIT,
       upgrade: {
         stripe: 'POST /billing/checkout for unlimited API key ($9/mo)',
         x402: {
-          price: X402_PRICE_USD,
-          currency: 'USD',
-          receiver: X402_RECEIVER,
-          networks: ['base', 'celo'],
-          accepts: ['USDC', 'USDT']
+          price: x402.price,
+          currency: x402.currency,
+          receiver: x402.receiver,
+          networks: x402.networks,
+          accepts: x402.accepts
         }
       }
     });

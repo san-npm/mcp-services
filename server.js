@@ -12,7 +12,7 @@ import { spawn } from 'child_process';
 import { resolve, resolve4 } from 'dns/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { authMiddleware, adminRoutes, mcpAuth } from './auth.js';
+import { authMiddleware, adminRoutes, mcpAuth, getX402PaymentMetadata } from './auth.js';
 import { stripeRoutes } from './stripe.js';
 import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js';
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
@@ -29,8 +29,6 @@ const MAX_BROWSERS = parseInt(process.env.MAX_BROWSERS, 10) || 3;
 const MAX_SSE_SESSIONS = parseInt(process.env.MAX_SSE_SESSIONS, 10) || 50;
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_CONTENT_LENGTH = 2 * 1024 * 1024; // 2 MB for html2md/ocr text
-const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005;
-const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
 let activeBrowsers = 0;
 
 // ─── PDF to DOCX conversion helper ───
@@ -266,15 +264,7 @@ function hasBillableMcpMessage(payload) {
 function x402PaymentRequiredResponse(res) {
   return res.status(402).json({
     error: 'Payment required',
-    x402: {
-      version: '1',
-      price: X402_PRICE_USD,
-      currency: 'USD',
-      receiver: X402_RECEIVER,
-      networks: ['base', 'celo'],
-      accepts: ['USDC', 'USDT'],
-      description: 'Pay per API call with stablecoins',
-    },
+    x402: getX402PaymentMetadata(),
   });
 }
 
