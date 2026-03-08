@@ -12,6 +12,39 @@ const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
 const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005;
 const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
 const KEYS_FILE = process.env.KEYS_FILE || './data/api-keys.json';
+const DEFAULT_ALLOW_APIKEY_QUERY = process.env.NODE_ENV !== 'production';
+const ALLOW_APIKEY_QUERY = process.env.ALLOW_APIKEY_QUERY
+  ? ['1', 'true', 'yes', 'on'].includes(process.env.ALLOW_APIKEY_QUERY.toLowerCase())
+  : DEFAULT_ALLOW_APIKEY_QUERY;
+const APIKEY_QUERY_DEPRECATION_MSG = 'Query API key auth via ?apikey is deprecated; use X-Api-Key header instead.';
+
+function getApiKeyFromRequest(req) {
+  const headerApiKey = req.headers['x-api-key'];
+  const queryApiKey = req.query.apikey;
+
+  if (headerApiKey) {
+    return { apiKey: headerApiKey, source: 'header' };
+  }
+
+  if (!queryApiKey) {
+    return { apiKey: null, source: null };
+  }
+
+  if (!ALLOW_APIKEY_QUERY) {
+    return {
+      apiKey: null,
+      source: 'query',
+      disabled: true,
+      error: 'Query API key auth is disabled. Use the X-Api-Key header.',
+    };
+  }
+
+  return {
+    apiKey: queryApiKey,
+    source: 'query',
+    warning: APIKEY_QUERY_DEPRECATION_MSG,
+  };
+}
 
 // ─── Persistent key storage ───
 let keyStore = {}; // { key: { customerId, subscriptionId, email, createdAt, active } }
@@ -234,12 +267,17 @@ export function getRequestLog() {
 
 // ─── MCP auth helper (reuses same tiers as REST) ───
 export async function mcpAuth(req, { countUsage = true } = {}) {
-  // 1. Check API key (via query param or header)
-  const apiKey = req.query.apikey || req.headers['x-api-key'];
-  if (apiKey) {
-    if (isValidKey(apiKey)) {
+  // 1. Check API key (prefer header; query support is deprecated and optional)
+  const keyAuth = getApiKeyFromRequest(req);
+  if (keyAuth.disabled) {
+    requestLog.blocked++;
+    return { tier: null, error: keyAuth.error };
+  }
+
+  if (keyAuth.apiKey) {
+    if (isValidKey(keyAuth.apiKey)) {
       requestLog.apikey++;
-      return { tier: 'apikey', apiKey };
+      return { tier: 'apikey', apiKey: keyAuth.apiKey, warning: keyAuth.warning || null };
     }
     return { tier: null, error: 'Invalid or revoked API key' };
   }
@@ -263,7 +301,7 @@ export async function mcpAuth(req, { countUsage = true } = {}) {
 
     if (count > FREE_LIMIT) {
       requestLog.blocked++;
-      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
+      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Send X-Api-Key header for unlimited access.` };
     }
 
     requestLog.free++;
@@ -271,7 +309,7 @@ export async function mcpAuth(req, { countUsage = true } = {}) {
     // Auth-only check (e.g. SSE handshake) — verify limit without incrementing
     const current = ipCounts.get(ip) || 0;
     if (current >= FREE_LIMIT) {
-      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Pass ?apikey=YOUR_KEY for unlimited access.` };
+      return { tier: null, error: `Daily free limit reached (${FREE_LIMIT}/day). Send X-Api-Key header for unlimited access.` };
     }
   }
 
@@ -314,10 +352,23 @@ export async function authMiddleware(req, res, next) {
     });
   }
 
-  // 2. Check API key
-  const apiKey = req.headers['x-api-key'] || req.query.apikey;
-  if (apiKey) {
-    if (isValidKey(apiKey)) {
+  // 2. Check API key (prefer header; query support is deprecated and optional)
+  const keyAuth = getApiKeyFromRequest(req);
+  if (keyAuth.disabled) {
+    requestLog.blocked++;
+    return res.status(400).json({
+      error: keyAuth.error,
+      code: 'QUERY_APIKEY_DISABLED',
+    });
+  }
+
+  if (keyAuth.warning) {
+    res.setHeader('Warning', `299 - "${keyAuth.warning}"`);
+    res.setHeader('Deprecation', 'true');
+  }
+
+  if (keyAuth.apiKey) {
+    if (isValidKey(keyAuth.apiKey)) {
       req.authTier = 'apikey';
       requestLog.apikey++;
       return next();

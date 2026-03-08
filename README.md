@@ -110,12 +110,15 @@ Three tiers -- use whichever fits:
 | Tier | How | Limit | Cost |
 |------|-----|-------|------|
 | **Free** | No auth needed | 10 calls/day per IP | $0 |
-| **API Key** | `X-Api-Key` header or `?apikey=` query param | Unlimited | $9/mo |
+| **API Key** | `X-Api-Key` header | Unlimited | $9/mo |
 | **x402** | `X-Payment` header | Pay per call | $0.005/call |
 
 ### API Key
 
 Subscribe via Stripe to get an unlimited API key:
+
+For migration only, query-string API keys (`?apikey=`) can be temporarily re-enabled with `ALLOW_APIKEY_QUERY=true`. This mode is deprecated; prefer `X-Api-Key`.
+
 
 ```bash
 # 1. Create checkout session
@@ -199,6 +202,7 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `SSE_ALLOWED_ORIGINS` | -- | Optional comma-separated allowlist for `Origin` header (full origins like `https://app.example.com`) |
 | `FREE_DAILY_LIMIT` | `10` | Free tier daily limit |
 | `API_KEYS` | -- | Comma-separated valid API keys |
+| `ALLOW_APIKEY_QUERY` | `true` in non-production, `false` in production | Allow deprecated `?apikey=` auth during migration |
 | `ADMIN_SECRET` | -- | Secret for admin endpoints |
 | `STRIPE_SK` | -- | Stripe API key for Pro subscriptions |
 | `STRIPE_WEBHOOK_SECRET` | -- | Stripe webhook signing secret |
