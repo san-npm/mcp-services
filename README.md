@@ -202,6 +202,7 @@ curl "https://mcp.skills.ws/api/security/vuln-headers?url=https://example.com"
 | `STRIPE_WEBHOOK_SECRET` | -- | Stripe webhook signing secret |
 | `X402_PRICE_USD` | `0.005` | x402 price per call |
 | `X402_RECEIVER` | -- | x402 payment receiver address |
+| `X402_TEST_MODE` | `0` | Set to `1` only for local/offline testing to skip on-chain verification while keeping replay protection |
 | `MEMORY_DB_PATH` | `./data/memory.db` | SQLite memory database path |
 | `VT_API_KEY` | -- | VirusTotal API key (free: 4/min, 500/day) |
 | `ABUSEIPDB_API_KEY` | -- | AbuseIPDB API key (free: 1000/day) |

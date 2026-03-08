@@ -12,7 +12,7 @@ import { spawn } from 'child_process';
 import { resolve, resolve4 } from 'dns/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { authMiddleware, adminRoutes, mcpAuth } from './auth.js';
+import { authMiddleware, adminRoutes, mcpAuth, getX402PaymentMetadata } from './auth.js';
 import { stripeRoutes } from './stripe.js';
 import { scrapeUrl, crawlSite, extractData, DOM_TO_MD_SCRIPT } from './scrape.js';
 import { serpScrape, onpageSeo, keywordsSuggest } from './seo.js';
@@ -250,6 +250,22 @@ function clampInt(val, fallback, min, max) {
   const n = parseInt(val, 10);
   if (isNaN(n)) return fallback;
   return Math.min(Math.max(n, min), max);
+}
+
+function isBillableMcpMethod(method) {
+  return method === 'tools/call';
+}
+
+function hasBillableMcpMessage(payload) {
+  const messages = Array.isArray(payload) ? payload : [payload];
+  return messages.some(m => m && typeof m === 'object' && isBillableMcpMethod(m.method));
+}
+
+function x402PaymentRequiredResponse(res) {
+  return res.status(402).json({
+    error: 'Payment required',
+    x402: getX402PaymentMetadata(),
+  });
 }
 
 // Async openssl — non-blocking alternative to spawnSync
@@ -1375,15 +1391,21 @@ app.post('/mcp/messages', async (req, res) => {
   const transport = transports[sessionId];
   if (!transport) return res.status(400).json({ error: 'Unknown session' });
 
-  // For free tier, count only tool calls (initialize/ping/notifications should not consume quota).
+  // Bill only tool calls; initialize/ping/notifications remain non-billable.
   const auth = sessionAuth[sessionId];
-  const message = req.body;
-  const messages = Array.isArray(message) ? message : [message];
-  const isToolCall = messages.some(m => m && typeof m === 'object' && m.method === 'tools/call');
-  if (auth?.tier === 'free' && isToolCall) {
+  const isBillable = hasBillableMcpMessage(req.body);
+
+  if (isBillable && auth?.tier === 'free') {
     const recheck = await mcpAuth(req, { countUsage: true });
     if (!recheck.tier) {
       return res.status(429).json({ error: recheck.error });
+    }
+  }
+
+  if (isBillable && auth?.tier === 'x402') {
+    const recheck = await mcpAuth(req, { countUsage: true });
+    if (!recheck.tier || recheck.tier !== 'x402') {
+      return x402PaymentRequiredResponse(res);
     }
   }
 

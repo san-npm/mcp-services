@@ -11,6 +11,7 @@ import { base, celo } from 'viem/chains';
 const FREE_LIMIT = parseInt(process.env.FREE_DAILY_LIMIT, 10) || 10;
 const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005;
 const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
+const X402_TEST_MODE = process.env.X402_TEST_MODE === '1';
 const KEYS_FILE = process.env.KEYS_FILE || './data/api-keys.json';
 
 // ─── Persistent key storage ───
@@ -180,6 +181,17 @@ async function verifyX402(req) {
     purgeExpiredTxHashes();
     if (verifiedTxHashes.has(txHash)) return false;
 
+    // Optional local test mode (no RPC dependency): validate header shape + replay protection only.
+    // This is intended for offline/manual verification in constrained environments.
+    if (X402_TEST_MODE) {
+      verifiedTxHashes.set(txHash, Date.now());
+      if (verifiedTxHashes.size > TX_HASH_MAX) {
+        const first = verifiedTxHashes.keys().next().value;
+        verifiedTxHashes.delete(first);
+      }
+      return true;
+    }
+
     // On-chain verification — fetch the transaction receipt
     const receipt = await client.getTransactionReceipt({ hash: txHash });
     if (!receipt || receipt.status !== 'success') return false;
@@ -230,6 +242,18 @@ const requestLog = { free: 0, apikey: 0, x402: 0, blocked: 0 };
 
 export function getRequestLog() {
   return { ...requestLog };
+}
+
+export function getX402PaymentMetadata() {
+  return {
+    version: '1',
+    price: X402_PRICE_USD,
+    currency: 'USD',
+    receiver: X402_RECEIVER,
+    networks: ['base', 'celo'],
+    accepts: ['USDC', 'USDT'],
+    description: 'Pay per API call with stablecoins'
+  };
 }
 
 // ─── MCP auth helper (reuses same tiers as REST) ───
@@ -302,15 +326,7 @@ export async function authMiddleware(req, res, next) {
     requestLog.blocked++;
     return res.status(402).json({
       error: 'Payment required',
-      x402: {
-        version: '1',
-        price: X402_PRICE_USD,
-        currency: 'USD',
-        receiver: X402_RECEIVER,
-        networks: ['base', 'celo'],
-        accepts: ['USDC', 'USDT'],
-        description: 'Pay per API call with stablecoins'
-      }
+      x402: getX402PaymentMetadata()
     });
   }
 
@@ -334,17 +350,18 @@ export async function authMiddleware(req, res, next) {
 
   if (count > FREE_LIMIT) {
     requestLog.blocked++;
+    const x402 = getX402PaymentMetadata();
     return res.status(429).json({
       error: 'Daily free limit reached',
       limit: FREE_LIMIT,
       upgrade: {
         stripe: 'POST /billing/checkout for unlimited API key ($9/mo)',
         x402: {
-          price: X402_PRICE_USD,
-          currency: 'USD',
-          receiver: X402_RECEIVER,
-          networks: ['base', 'celo'],
-          accepts: ['USDC', 'USDT']
+          price: x402.price,
+          currency: x402.currency,
+          receiver: x402.receiver,
+          networks: x402.networks,
+          accepts: x402.accepts
         }
       }
     });
