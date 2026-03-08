@@ -1,8 +1,6 @@
 // ─── Security Toolkit Service ───
 // Tools: url_scan, wallet_check, contract_scan, email_headers, threat_intel, header_audit, vuln_headers
 
-import https from 'https';
-import http from 'http';
 import { resolve, resolve4 } from 'dns/promises';
 
 // ─── Shared helpers ───
@@ -57,47 +55,70 @@ const MAX_FETCH_REDIRECTS = 5;
 async function _ssrfSafeFetchRaw(url, options = {}, depth = 0) {
   if (depth > MAX_FETCH_REDIRECTS) throw new Error(`Too many redirects (max ${MAX_FETCH_REDIRECTS})`);
   if (!validateUserUrl(url)) throw new Error('URL blocked by SSRF policy');
-  if (!await validateUserUrlAsync(url)) throw new Error('URL resolves to blocked address');
 
-  return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https') ? https : http;
-    const req = mod.get(url, { headers: options.headers || {}, timeout: 10000 }, (res) => {
-      // Re-validate redirect targets before following
-      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
-        res.destroy();
-        const redirectUrl = new URL(res.headers.location, url).href;
-        _ssrfSafeFetchRaw(redirectUrl, options, depth + 1).then(resolve, reject);
-        return;
-      }
-      resolve(res);
+  const parsed = new URL(url);
+  const host = parsed.hostname.toLowerCase();
+  let targetUrl = url;
+  const headers = { ...(options.headers || {}) };
+
+  // DNS pinning to reduce rebinding/TOCTOU risks
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(host) && !host.startsWith('[')) {
+    const addrs = await resolve4(host);
+    if (!addrs.length) throw new Error('DNS resolution failed');
+    if (!addrs.every(ip => !isPrivateIp(ip))) throw new Error('URL resolves to blocked address');
+    parsed.hostname = addrs[0];
+    targetUrl = parsed.toString();
+    headers.Host = host;
+  } else if (!await validateUserUrlAsync(url)) {
+    throw new Error('URL resolves to blocked address');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'GET',
+      headers,
+      redirect: 'manual',
+      signal: controller.signal,
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
-  });
+
+    if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get('location')) {
+      const redirectUrl = new URL(res.headers.get('location'), url).href;
+      return _ssrfSafeFetchRaw(redirectUrl, options, depth + 1);
+    }
+
+    return res;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function fetchJson(url, options = {}) {
   const res = await _ssrfSafeFetchRaw(url, options);
-  return new Promise((resolve, reject) => {
-    let data = '';
-    let bytes = 0;
-    res.on('data', (chunk) => {
-      bytes += chunk.length;
-      if (bytes > MAX_RESPONSE_BYTES) { res.destroy(); reject(new Error('Response too large')); return; }
-      data += chunk;
-    });
-    res.on('end', () => {
-      try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-      catch { resolve({ status: res.statusCode, data }); }
-    });
-    res.on('error', reject);
-  });
+  const reader = res.body?.getReader?.();
+  let bytes = 0;
+  let chunks = [];
+
+  if (reader) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_RESPONSE_BYTES) throw new Error('Response too large');
+      chunks.push(Buffer.from(value));
+    }
+  }
+
+  const dataStr = Buffer.concat(chunks).toString('utf-8');
+  try { return { status: res.status, data: JSON.parse(dataStr) }; }
+  catch { return { status: res.status, data: dataStr }; }
 }
 
 async function fetchHeaders(url) {
   const res = await _ssrfSafeFetchRaw(url);
-  res.destroy();
-  return { status: res.statusCode, headers: res.headers };
+  return { status: res.status, headers: Object.fromEntries(res.headers.entries()) };
 }
 
 // ─── Known brand list for typosquatting ───

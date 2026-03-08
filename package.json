@@ -24,6 +24,9 @@
     "viem": "^2.21.0",
     "whois-json": "^2.0.4"
   },
+  "overrides": {
+    "express-rate-limit": "8.2.2"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -14,6 +14,8 @@ const X402_PRICE_USD = parseFloat(process.env.X402_PRICE_USD) || 0.005;
 const X402_RECEIVER = process.env.X402_RECEIVER || '0x087ae921CE8d07a4dE6BdacAceD475e9080B2aDF';
 const X402_TEST_MODE = process.env.X402_TEST_MODE === '1';
 const KEYS_FILE = process.env.KEYS_FILE || './data/api-keys.json';
+const X402_TX_CACHE_FILE = process.env.X402_TX_CACHE_FILE || './data/x402-tx-cache.json';
+const X402_MAX_TX_AGE_SECONDS = Math.max(60, parseInt(process.env.X402_MAX_TX_AGE_SECONDS || '86400', 10));
 const DEFAULT_ALLOW_APIKEY_QUERY = process.env.NODE_ENV !== 'production';
 const ALLOW_APIKEY_QUERY = process.env.ALLOW_APIKEY_QUERY
   ? ['1', 'true', 'yes', 'on'].includes(process.env.ALLOW_APIKEY_QUERY.toLowerCase())
@@ -183,13 +185,50 @@ const STABLECOIN_ADDRESSES = {
   },
 };
 
-function purgeExpiredTxHashes() {
-  const now = Date.now();
-  for (const [hash, ts] of verifiedTxHashes) {
-    if (now - ts > TX_HASH_TTL) verifiedTxHashes.delete(hash);
-    else break; // Map preserves insertion order; stop at first non-expired
+function loadVerifiedTxHashes() {
+  try {
+    if (!existsSync(X402_TX_CACHE_FILE)) return;
+    const parsed = JSON.parse(readFileSync(X402_TX_CACHE_FILE, 'utf-8'));
+    if (!Array.isArray(parsed)) return;
+    for (const item of parsed) {
+      if (!item || typeof item.hash !== 'string' || typeof item.ts !== 'number') continue;
+      if (!/^0x[a-fA-F0-9]{64}$/.test(item.hash)) continue;
+      verifiedTxHashes.set(item.hash.toLowerCase(), item.ts);
+    }
+  } catch (e) {
+    console.error('[auth] Failed to load x402 tx cache:', e.message);
   }
 }
+
+function saveVerifiedTxHashes() {
+  try {
+    const dir = dirname(X402_TX_CACHE_FILE);
+    if (dir && dir !== '.' && !existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const payload = JSON.stringify(Array.from(verifiedTxHashes.entries()).map(([hash, ts]) => ({ hash, ts })));
+    const tmp = X402_TX_CACHE_FILE + '.tmp';
+    writeFileSync(tmp, payload);
+    renameSync(tmp, X402_TX_CACHE_FILE);
+  } catch (e) {
+    console.error('[auth] Failed to save x402 tx cache:', e.message);
+  }
+}
+
+function purgeExpiredTxHashes() {
+  const now = Date.now();
+  let changed = false;
+  for (const [hash, ts] of verifiedTxHashes) {
+    if (now - ts > TX_HASH_TTL) {
+      verifiedTxHashes.delete(hash);
+      changed = true;
+    } else break; // Map preserves insertion order; stop at first non-expired
+  }
+  if (changed) saveVerifiedTxHashes();
+}
+
+loadVerifiedTxHashes();
+purgeExpiredTxHashes();
 
 async function verifyX402(req) {
   const paymentHeader = req.headers['x-payment'];
@@ -223,12 +262,18 @@ async function verifyX402(req) {
         const first = verifiedTxHashes.keys().next().value;
         verifiedTxHashes.delete(first);
       }
+      saveVerifiedTxHashes();
       return true;
     }
 
     // On-chain verification — fetch the transaction receipt
     const receipt = await client.getTransactionReceipt({ hash: txHash });
     if (!receipt || receipt.status !== 'success') return false;
+
+    // Freshness check: reject stale payments
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    const txAgeSeconds = Math.floor(Date.now() / 1000) - Number(block.timestamp);
+    if (txAgeSeconds > X402_MAX_TX_AGE_SECONDS) return false;
 
     // Verify the transaction sent value to our receiver address
     // Check for ERC20 Transfer events to receiver with sufficient amount
@@ -264,6 +309,7 @@ async function verifyX402(req) {
       const first = verifiedTxHashes.keys().next().value;
       verifiedTxHashes.delete(first);
     }
+    saveVerifiedTxHashes();
 
     return true;
   } catch {

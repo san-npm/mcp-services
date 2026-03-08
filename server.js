@@ -388,6 +388,7 @@ function parseCertOutput(raw) {
 
 // ─── Express API ───
 const app = express();
+app.disable('x-powered-by');
 const trustProxyConfig = parseTrustProxyConfig(process.env.TRUST_PROXY);
 app.set('trust proxy', trustProxyConfig.expressValue);
 app.locals.trustProxyEnabled = trustProxyConfig.enabled;
