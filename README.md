@@ -265,6 +265,17 @@ cp .env.production.example .env
 # then edit .env values for your domain, proxy topology, redis and secrets
 ```
 
+### Stripe webhook edge allowlist auto-sync (nginx)
+
+```bash
+# Generate CIDR allowlist include from Stripe source and reload nginx
+scripts/sync-stripe-webhook-ips.sh \
+  --out /etc/nginx/snippets/stripe-webhook-allowlist.conf \
+  --reload "systemctl reload nginx"
+```
+
+See `deploy/nginx/stripe-webhook.conf.example` for the webhook location block.
+
 ---
 
 ## Security

@@ -37,6 +37,16 @@ Defense in depth order:
 2. `STRIPE_WEBHOOK_IP_ALLOWLIST` in app
 3. Stripe signature verification (`STRIPE_WEBHOOK_SECRET`)
 
+## Secret hygiene
+
+- Never commit real secrets to git (`.env`, `.env.*`, API keys, private keys).
+- Keep runtime secrets in deployment secret stores (not in repository files).
+- Before release, run:
+
+```bash
+git grep -nE "(ghp_|gho_|sk_live_|AKIA|xox[baprs]-|BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY)" HEAD
+```
+
 ## Dependency hygiene
 
 - Run `npm audit` in CI.

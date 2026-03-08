@@ -1,0 +1,12 @@
+# Example nginx location for Stripe webhook hardening
+# Use with generated allowlist include from scripts/sync-stripe-webhook-ips.sh
+
+location = /billing/webhook {
+    limit_except POST { deny all; }
+
+    # Generated file should contain allow <cidr>; lines + final deny all;
+    include /etc/nginx/snippets/stripe-webhook-allowlist.conf;
+
+    client_max_body_size 1m;
+    proxy_pass http://mcp_services;
+}

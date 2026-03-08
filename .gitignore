@@ -1,6 +1,8 @@
 *.log
 *.pem
 .env
-.env.local
+.env.*
+!.env.example
+!.env.production.example
 data/
 node_modules/
