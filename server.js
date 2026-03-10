@@ -142,39 +142,20 @@ function validateSseRequest(req) {
 // ─── PDF to DOCX conversion helper ───
 const MAX_PDF_PAGES = 200;
 
-async function convertPdfToDocx(pdfBuffer) {
-  const doc = await getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+function buildDocxFromLines(lines) {
   const paragraphs = [];
-  const pageCount = Math.min(doc.numPages, MAX_PDF_PAGES);
-
-  for (let i = 1; i <= pageCount; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    const lines = [];
-    let currentLine = '';
-    let lastY = null;
-    for (const item of content.items) {
-      if (lastY !== null && Math.abs(item.transform[5] - lastY) > 2) {
-        lines.push(currentLine);
-        currentLine = '';
-      }
-      currentLine += (currentLine && lastY !== null && Math.abs(item.transform[5] - lastY) <= 2 ? ' ' : '') + item.str;
-      lastY = item.transform[5];
+  for (const line of lines) {
+    const trimmed = String(line || '').trim();
+    if (!trimmed) {
+      paragraphs.push(new Paragraph({ text: '' }));
+      continue;
     }
-    if (currentLine) lines.push(currentLine);
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) { paragraphs.push(new Paragraph({ text: '' })); continue; }
-      const isHeading = trimmed.length < 100 && trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed);
-      paragraphs.push(new Paragraph({
-        children: [new TextRun({ text: trimmed, bold: isHeading, size: isHeading ? 28 : 22 })],
-        heading: isHeading ? HeadingLevel.HEADING_2 : undefined,
-      }));
-    }
-    if (i < pageCount) paragraphs.push(new Paragraph({ text: '' }));
+    const isHeading = trimmed.length < 100 && trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed);
+    paragraphs.push(new Paragraph({
+      children: [new TextRun({ text: trimmed, bold: isHeading, size: isHeading ? 28 : 22 })],
+      heading: isHeading ? HeadingLevel.HEADING_2 : undefined,
+    }));
   }
-  doc.destroy();
 
   const wordDoc = new DocxDocument({
     sections: [{ properties: {}, children: paragraphs }],
@@ -182,6 +163,61 @@ async function convertPdfToDocx(pdfBuffer) {
     title: 'Converted PDF',
   });
   return Packer.toBuffer(wordDoc);
+}
+
+async function convertPdfToDocx(pdfBuffer) {
+  // Primary parser: pdfjs-dist
+  try {
+    const doc = await getDocument({
+      data: new Uint8Array(pdfBuffer),
+      disableFontFace: true,
+      isEvalSupported: false,
+      useSystemFonts: false,
+    }).promise;
+
+    const lines = [];
+    const pageCount = Math.min(doc.numPages, MAX_PDF_PAGES);
+
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      let currentLine = '';
+      let lastY = null;
+
+      for (const item of content.items || []) {
+        if (!item || typeof item.str !== 'string' || !Array.isArray(item.transform)) continue;
+        const y = Number(item.transform[5]);
+        if (lastY !== null && Number.isFinite(y) && Math.abs(y - lastY) > 2) {
+          if (currentLine) lines.push(currentLine);
+          currentLine = '';
+        }
+        const sameLine = currentLine && lastY !== null && Number.isFinite(y) && Math.abs(y - lastY) <= 2;
+        currentLine += (sameLine ? ' ' : '') + item.str;
+        lastY = Number.isFinite(y) ? y : lastY;
+      }
+
+      if (currentLine) lines.push(currentLine);
+      if (i < pageCount) lines.push('');
+    }
+
+    doc.destroy();
+    if (lines.length) return buildDocxFromLines(lines);
+    throw new Error('PDF parser returned no text');
+  } catch (primaryErr) {
+    console.warn('[pdf2docx] primary parser failed, trying fallback parser:', primaryErr?.message || primaryErr);
+
+    // Fallback parser: pdf-parse (more tolerant on some serverless PDFs)
+    try {
+      const { default: pdfParse } = await import('pdf-parse');
+      const parsed = await pdfParse(pdfBuffer);
+      const raw = String(parsed?.text || '');
+      const lines = raw.split(/\r?\n/).map(s => s.trimRight());
+      if (!lines.some(Boolean)) throw new Error('Fallback parser returned no text');
+      return buildDocxFromLines(lines);
+    } catch (fallbackErr) {
+      throw new Error(`Both parsers failed. primary=${primaryErr?.message || primaryErr}; fallback=${fallbackErr?.message || fallbackErr}`);
+    }
+  }
 }
 
 // ─── Chain configs ───
@@ -294,27 +330,32 @@ async function validateUrlAsync(urlStr) {
   }
 }
 
-// SSRF-safe fetch — resolves DNS upfront, pins the IP, and fetches via IP with Host header
-// Prevents DNS rebinding between validateUrlAsync() and the actual fetch()
+// SSRF-safe fetch
+// NOTE: IP pinning on HTTPS breaks TLS SNI for some hosts.
+// We validate DNS up front and only pin for plain HTTP requests.
 const MAX_REDIRECTS = 5;
 async function ssrfSafeFetch(urlStr, opts = {}, _depth = 0) {
   if (_depth > MAX_REDIRECTS) throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
   const u = new URL(urlStr);
   const host = u.hostname.toLowerCase();
   let targetUrl = urlStr;
+  const nextOpts = { ...opts };
 
-  // Resolve DNS and pin the IP for non-IP-literal hosts
+  // Resolve DNS for non-IP-literal hosts and reject private ranges.
   if (!/^\d+\.\d+\.\d+\.\d+$/.test(host) && !host.startsWith('[')) {
     const addrs = await resolve4(host);
     if (!addrs.length) throw new Error('DNS resolution failed');
     if (!addrs.every(ip => !isPrivateIp(ip))) throw new Error('URL resolves to blocked address');
-    // Replace hostname with resolved IP, pass original Host via header
-    u.hostname = addrs[0];
-    targetUrl = u.toString();
-    opts.headers = { ...opts.headers, Host: host };
+
+    // Pin only for HTTP (no TLS/SNI). For HTTPS we keep hostname intact.
+    if (u.protocol === 'http:') {
+      u.hostname = addrs[0];
+      targetUrl = u.toString();
+      nextOpts.headers = { ...nextOpts.headers, Host: host };
+    }
   }
 
-  const resp = await fetch(targetUrl, { ...opts, redirect: 'manual' });
+  const resp = await fetch(targetUrl, { ...nextOpts, redirect: 'manual' });
 
   // Block redirects to internal addresses
   if ([301, 302, 303, 307, 308].includes(resp.status)) {

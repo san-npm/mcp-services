@@ -20,6 +20,7 @@
     "express": "^4.21.0",
     "ioredis": "^5.8.1",
     "pdfjs-dist": "^5.5.207",
+    "pdf-parse": "^1.1.1",
     "puppeteer-core": "^24.0.0",
     "stripe": "^20.4.0",
     "viem": "^2.21.0",
